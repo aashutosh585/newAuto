@@ -19,3 +19,4 @@ export function getNiche(name: string): NicheDefinition {
 export function listAvailableNiches(): string[] {
   return Array.from(niches.keys());
 }
+

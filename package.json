@@ -1,21 +1,36 @@
 {
   "name": "social-engine",
-  "version": "1.0.0",
+  "version": "3.0.0",
   "private": true,
-  "description": "Production automated social media publishing engine",
   "scripts": {
-    "build": "pnpm --recursive run build",
-    "dev:web": "pnpm --filter @social-engine/web dev",
-    "dev:worker": "pnpm --filter @social-engine/worker dev",
-    "db:generate": "pnpm --filter @social-engine/db generate",
-    "db:migrate": "pnpm --filter @social-engine/db migrate",
-    "db:push": "pnpm --filter @social-engine/db push",
-    "lint": "pnpm --recursive run lint",
-    "clean": "pnpm --recursive run clean"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@zernio/node": "^0.2.215",
+    "axios": "^1.7.9",
+    "bcryptjs": "^2.4.3",
+    "clsx": "^2.1.1",
+    "dotenv": "^16.4.7",
+    "jsonwebtoken": "^9.0.2",
+    "lucide-react": "^0.475.0",
+    "mongoose": "^8.10.1",
+    "next": "^14.2.24",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^3.0.2"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.9",
     "@types/node": "^22.13.4",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.2",
+    "tailwindcss": "^3.4.17",
     "typescript": "^5.7.3"
-  },
-  "packageManager": "pnpm@10.32.1"
+  }
 }

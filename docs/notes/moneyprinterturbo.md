@@ -12,3 +12,4 @@
 3. **What We Skip**:
    - We skip its heavy Gradio UI and monolithic codebase.
    - We use modern Remotion React components and BullMQ orchestration instead.
+

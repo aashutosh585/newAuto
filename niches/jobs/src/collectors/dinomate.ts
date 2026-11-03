@@ -45,3 +45,4 @@ export class DinoMateCollector implements CollectorInterface {
     }
   }
 }
+

@@ -41,3 +41,4 @@ RUN pnpm --filter @social-engine/worker build
 RUN npx playwright install chromium
 
 CMD ["node", "apps/worker/dist/index.js"]
+

@@ -28,3 +28,4 @@ export interface Publisher {
   name: string;
   publish(payload: PublishPayload): Promise<PublishResult>;
 }
+

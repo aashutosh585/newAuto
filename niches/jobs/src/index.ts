@@ -62,3 +62,4 @@ export const jobsNiche: NicheDefinition = {
 };
 
 export default jobsNiche;
+

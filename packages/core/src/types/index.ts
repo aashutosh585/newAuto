@@ -143,3 +143,4 @@ export interface NicheDefinition {
   deduplicate: (item: RawItem) => string;
   isEligible?: (item: RawItem) => { eligible: boolean; reason?: string };
 }
+

@@ -48,3 +48,4 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
 }
 
 export { SESSION_COOKIE };
+

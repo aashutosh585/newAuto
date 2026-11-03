@@ -63,3 +63,4 @@ export class JobSpyCollector implements CollectorInterface {
     return results;
   }
 }
+

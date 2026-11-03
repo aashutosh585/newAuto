@@ -82,3 +82,4 @@ curl -X POST "https://yourdomain.com/api/run?slot=morning&secret=YOUR_CRON_SECRE
 4. **`RENDER`**: Playwright renders high-contrast 1080x1350 JPEG slides.
 5. **`PUBLISH`**: Dispatches post payload to Zernio API (or direct publishers).
 6. **`TRACK`**: Webhooks update post status and performance metrics in the dashboard.
+

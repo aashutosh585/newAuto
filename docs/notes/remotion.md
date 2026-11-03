@@ -20,3 +20,4 @@
    - If Remotion rendering fails or times out:
      1. Fallback to simpler static-card video template.
      2. Fallback to carousel image posting only (never crash the entire run).
+

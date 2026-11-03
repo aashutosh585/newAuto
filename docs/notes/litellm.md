@@ -22,3 +22,4 @@
    - Every single completion call records:
      - `alias`, `model`, `promptTokens`, `completionTokens`, `totalTokens`, `costUsd`, `latencyMs`.
      - `promptPreview` and `responsePreview` are automatically scrubbed by `redactSensitive()`.
+

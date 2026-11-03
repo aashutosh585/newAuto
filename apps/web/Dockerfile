@@ -17,3 +17,4 @@ RUN pnpm --filter @social-engine/web build
 EXPOSE 3000
 
 CMD ["node", "apps/web/dist/index.js"]
+

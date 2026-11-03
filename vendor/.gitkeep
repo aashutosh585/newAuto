@@ -1,7 +1,0 @@
-# Vendor Directory
-# Clone reference repos here:
-# - git clone https://github.com/BerriAI/litellm vendor/litellm
-# - git clone https://github.com/speedyapply/JobSpy vendor/JobSpy
-# - git clone https://github.com/postmill-ai/postmill-app vendor/postmill-app
-# - git clone https://github.com/remotion-dev/remotion vendor/remotion
-# - git clone https://github.com/harry0703/MoneyPrinterTurbo vendor/MoneyPrinterTurbo

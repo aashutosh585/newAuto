@@ -18,3 +18,4 @@
 3. **Fallback & Quality Guardrails**:
    - Complemented with official ATS JSON endpoints (Greenhouse, Lever) so the system never depends exclusively on web scraping.
    - Apply links are validated with `checkUrlLiveness` before passing to ranking.
+

@@ -38,3 +38,4 @@ export function redactObject<T>(obj: T): T {
   const redactedStr = redactSensitive(jsonStr);
   return JSON.parse(redactedStr);
 }
+

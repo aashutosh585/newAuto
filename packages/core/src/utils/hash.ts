@@ -12,3 +12,4 @@ export function generateIdempotencyKey(niche: string, slot: string, date: Date =
   const slotClean = slot.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
   return `${niche}-${slotClean}-${dateStr}`;
 }
+
