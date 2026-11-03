@@ -31,9 +31,10 @@ export async function POST(req: NextRequest) {
   await connectToDatabase();
   const body = await req.json().catch(() => ({}));
   const slot = body.slot || 'manual_dashboard';
+  const pipelineType = body.type || 'image'; // 'image' | 'video'
 
   const run = await Run.create({
-    slot,
+    slot: `${slot}:${pipelineType}`,
     idempotencyKey: `manual-${Date.now()}`,
     status: 'pending',
     triggerSource: 'dashboard',
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
   const runIdStr = run._id.toString();
   (async () => {
     try {
-      await runSocialPipeline(runIdStr, slot, 'dashboard');
+      await runSocialPipeline(runIdStr, slot, pipelineType);
     } catch (err: any) {
       console.error('[Manual Pipeline Error]:', err);
     }
@@ -51,8 +52,9 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     success: true,
-    message: 'Manual pipeline triggered successfully',
+    message: `${pipelineType === 'video' ? 'Video' : 'Image carousel'} pipeline triggered`,
     runId: run._id,
+    pipelineType,
   });
 }
 

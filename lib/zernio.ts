@@ -123,6 +123,8 @@ export interface ZernioPublishOptions {
   content: string;
   platforms?: Array<{ platform: string; accountId: string }>;
   mediaUrls?: string[];
+  mediaType?: 'image' | 'video';
+  mediaItems?: Array<{ type: 'image' | 'video'; url: string }>;
   publishNow?: boolean;
 }
 
@@ -143,10 +145,12 @@ export async function publishToZernio(options: ZernioPublishOptions): Promise<an
     }));
   }
 
-  const mediaItems = options.mediaUrls?.map((url) => ({
-    type: 'image' as const,
-    url,
-  }));
+  const mediaItems =
+    options.mediaItems ||
+    options.mediaUrls?.map((url) => ({
+      type: (options.mediaType || 'image') as 'image' | 'video',
+      url,
+    }));
 
   const response = await zernio.posts.createPost({
     body: {

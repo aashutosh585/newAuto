@@ -11,62 +11,64 @@ async function handleRunTrigger(req: NextRequest) {
   const searchParams = req.nextUrl.searchParams;
   const querySecret = searchParams.get('secret');
 
-  // 1. Verify CRON_SECRET if defined
+  // 1. Verify CRON_SECRET
   if (cronSecret && authHeader !== cronSecret && querySecret !== cronSecret) {
     return NextResponse.json({ error: 'Unauthorized: Invalid CRON_SECRET' }, { status: 401 });
   }
 
   // 2. Kill switch check
   if (process.env.ENGINE_KILL_SWITCH === 'true') {
-    return NextResponse.json({ error: 'Engine is currently paused via ENGINE_KILL_SWITCH' }, { status: 503 });
+    return NextResponse.json({ error: 'Engine paused via ENGINE_KILL_SWITCH' }, { status: 503 });
   }
 
   const slot = searchParams.get('slot') || 'daily_slot';
-  const idempotencyKey = generateIdempotencyKey(slot);
+  // type: 'image' (carousel only) | 'video' (video + carousel) | 'all' (default = image)
+  const pipelineType = (searchParams.get('type') || 'image') as 'image' | 'video' | 'all';
+  const idempotencyKey = generateIdempotencyKey(`${slot}_${pipelineType}`);
 
   await connectToDatabase();
 
-  // 3. Prevent duplicate executions for same slot on same day
+  // 3. Prevent duplicate runs for same slot+type today
   const existingRun = await Run.findOne({ idempotencyKey });
   if (existingRun) {
     return NextResponse.json(
       {
         success: true,
         idempotent: true,
-        message: `Run already executed for slot "${slot}" today (${existingRun.status})`,
+        message: `Run already executed for slot "${slot}" (${pipelineType}) today — status: ${existingRun.status}`,
         runId: existingRun._id,
       },
       { status: 200 }
     );
   }
 
-  // 4. Create new Run record in MongoDB
+  // 4. Create Run record
   const run = await Run.create({
-    slot,
+    slot: `${slot}:${pipelineType}`,
     idempotencyKey,
     status: 'pending',
     triggerSource: searchParams.get('source') || 'external_cron',
     stages: [],
   });
 
-  // 5. Fire and start the pipeline asynchronously in background
-  // We do NOT await this here so the external cron receives an immediate 200 OK response
   const runIdStr = run._id.toString();
+
+  // 5. Fire pipeline async — instant 200 response to cron caller
   (async () => {
     try {
-      await runSocialPipeline(runIdStr, slot, 'external_cron');
+      await runSocialPipeline(runIdStr, slot, pipelineType);
     } catch (err: any) {
       console.error(`[Background Run Error] Run ${runIdStr}:`, err);
     }
   })();
 
-  // 6. Send immediate success response to external caller
   return NextResponse.json(
     {
       success: true,
-      message: `Social Engine pipeline started successfully for slot "${slot}"`,
+      message: `Pipeline started: type="${pipelineType}", slot="${slot}"`,
       runId: run._id,
       idempotencyKey,
+      pipelineType,
       status: 'started',
     },
     { status: 200 }
@@ -80,4 +82,3 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   return handleRunTrigger(req);
 }
-
