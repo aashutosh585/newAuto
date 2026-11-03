@@ -1,85 +1,156 @@
-# Social Engine Setup & Operations Guide (v3)
+# 📖 Social Engine Setup & Operations Guide
 
-## 1. Step 0: Accounts & Keys Checklist
+Complete step-by-step operations guide for deploying and running the **DinoMate Social Engine** on **Vercel** with **MongoDB Atlas**, **Zernio**, and **cron-job.org**.
+
+---
+
+## 1. Step 0: Accounts & API Keys Checklist
 
 ### A. Zernio (Publisher Gateway)
-1. Sign up on [Zernio](https://zernio.com) and create an API Key (copy it immediately).
-2. Create a default profile.
-3. Connect initial platforms:
-   - **Telegram**: Connect your channel where the bot is an administrator.
-   - **Instagram**: Connect your Instagram Professional account (must be linked to a Facebook Page).
-4. Save the account IDs into `.env`:
-   - `ZERNIO_API_KEY`
-   - `ZERNIO_PROFILE_ID`
-   - `ZERNIO_ACCOUNT_TELEGRAM`
-   - `ZERNIO_ACCOUNT_INSTAGRAM`
+1. Sign up on [Zernio](https://zernio.com) and create an **API Key** in Settings → API Keys.
+2. Note your default Profile ID (the engine auto-discovers this if not set).
+3. Connect your initial platforms via the dashboard UI or API:
+   - **Telegram**: Connect your channel using the verification code provided by `@LateScheduleBot`.
+   - **Instagram**: Professional account connected to a Facebook Page.
+   - **YouTube**: Connect your YouTube channel.
+   - **Twitter / X**: Authenticate via OAuth.
+4. Set in `.env`:
+   ```bash
+   ZERNIO_API_KEY=sk_...
+   ZERNIO_PROFILE_ID=6a9a5d626af294f23b71166b
+   ```
 
-### B. Telegram Private Alerts Bot
-1. Open [@BotFather](https://t.me/BotFather) and run `/newbot` to generate a dedicated alert bot.
-2. Obtain your personal chat ID (message `@userinfobot` or check `/getUpdates`).
-3. Set `ALERT_TELEGRAM_BOT_TOKEN` and `ALERT_CHAT_ID` in `.env`.
+### B. MongoDB Atlas Database
+1. Create a free cluster on [MongoDB Atlas](https://www.mongodb.com/cloud/atlas).
+2. Create a database user with Read/Write permissions.
+3. Whitelist Network Access (`0.0.0.0/0` for Vercel serverless functions).
+4. Set in `.env`:
+   ```bash
+   MONGODB_URI=mongodb+srv://<username>:<password>@cluster0.mongodb.net/social_engine?retryWrites=true&w=majority
+   ```
 
-### C. LLM Gateway Keys
-1. Obtain free-tier API keys for:
-   - Google AI Studio (Gemini 2.5 Flash)
-   - Groq (Llama 3.1 & 3.3)
-   - OpenRouter (free models)
-2. Enter them into `.env` (these are routed only through `litellm`):
-   - `GEMINI_API_KEY`
-   - `GROQ_API_KEY`
-   - `OPENROUTER_API_KEY`
+### C. Free AI Providers (Multi-Model Resilience)
+The engine supports multiple free-tier LLM providers with automatic fallback:
+- **IteraCompute**: Register on `platform.iteracompute.com` and generate an API key. Uses `qwen/qwen3.8-27b` (`is_free: true`, 262k context).
+- **OpenRouter**: Register on `openrouter.ai` and generate an API key. Uses free models (`dots-studio/dots-3-note-preview:free`, `nvidia/nemotron-3.5-lightning:free`, etc.).
+- **Google AI Studio**: Generate a Gemini API key for `gemini-2.0-flash`.
+- **Groq**: Optional backup for `llama-3.3-70b-versatile`.
+
+Set in `.env`:
+```bash
+GEMINI_API_KEY=...
+OPENROUTER_API_KEY=sk-or-v1-...
+ITERACOMPUTE_API_KEY=sk-...
+ITERACOMPUTE_MODEL=qwen/qwen3.8-27b
+GROQ_API_KEY=...
+```
+
+### D. DinoMate Public Job Source
+- Endpoint: `https://dinomate.app/api/public/jobs`
+- Auth: `x-api-key: publickey` (free, no secret required)
+- Pre-configured in `.env`:
+  ```bash
+  DINOMATE_API_KEY=publickey
+  ```
 
 ---
 
-## 2. Infrastructure Setup (Docker Compose)
+## 2. Local Development & Verification
 
-### A. Environment Configuration
-Copy `.env.example` to `.env` and fill in your keys:
+### A. Install Packages
 ```bash
-cp .env.example .env
+pnpm install
 ```
 
-### B. Generate Dashboard Password Hash
-Use Node to generate a secure bcrypt hash for your dashboard login:
+### B. Launch Dev Server
 ```bash
-node -e "const bcrypt = require('bcryptjs'); console.log(bcrypt.hashSync('YourSuperPassword123', 12));"
+pnpm dev
 ```
-Place the output into `DASHBOARD_PASSWORD_HASH` in `.env`.
-
-### C. Launch Infrastructure
-Start PostgreSQL, Redis, LiteLLM, JobSpy, Web, Worker, and Caddy:
-```bash
-docker-compose -f infra/docker-compose.yml up -d
-```
-
-### D. Run Database Migrations
-Initialize PostgreSQL tables:
-```bash
-pnpm db:push
-```
+Navigate to **`http://localhost:3000`**:
+1. Enter your `ADMIN_PASSWORD` (configured in `.env`).
+2. Test connecting social accounts via Zernio.
+3. Click **"Image Run"** to test a live 5-slide carousel post.
+4. Click **"Video Run"** to test a live 9:16 vertical video reel explainer.
 
 ---
 
-## 3. Triggering Runs
+## 3. Production Deployment (Vercel)
 
-### A. Via Cron Trigger (GitHub Actions / cron-job.org)
-Send an HTTP POST or GET request with your `CRON_SECRET`:
-```bash
-curl -X POST "https://yourdomain.com/api/run?slot=morning&secret=YOUR_CRON_SECRET"
-```
+### A. Deploy to Vercel
+1. Import the repository in your Vercel Dashboard.
+2. Under **Project Settings → Environment Variables**, copy and paste all values from your local `.env`.
+3. Set Framework Preset to **Next.js**.
+4. Click **Deploy**.
 
-### B. Via Password-Protected Dashboard
-1. Open `https://yourdomain.com/login` in your browser.
-2. Enter your password.
-3. Navigate to **Settings** or click **+ Trigger Run** in the header.
+### B. Configure Zernio Webhooks
+In your **Zernio Dashboard → Settings → Webhooks**:
+- Set **Webhook URL** to:
+  ```
+  https://your-domain.vercel.app/api/webhooks/zernio
+  ```
+- Events: Select `post.published`, `post.failed`, and `post.analytics`.
+- This ensures your dashboard automatically displays live post links, likes, comments, and reach!
 
 ---
 
-## 4. Pipeline Stages Sequence
-1. **`COLLECT`**: Fetches jobs from JobSpy, ATS feeds (Greenhouse/Lever), and DinoMate.
-2. **`RANK`**: LiteLLM evaluates role, eligibility, batch, and skills (scores 0-100).
-3. **`WRITE`**: LiteLLM crafts unique platform captions with CTAs and hashtags.
-4. **`RENDER`**: Playwright renders high-contrast 1080x1350 JPEG slides.
-5. **`PUBLISH`**: Dispatches post payload to Zernio API (or direct publishers).
-6. **`TRACK`**: Webhooks update post status and performance metrics in the dashboard.
+## 4. Setting Up Outside Cron Triggers
 
+Set up tasks on [cron-job.org](https://cron-job.org) to operate with **zero human intervention**:
+
+### Task 1: Daily Job Carousel
+- **URL**: `https://your-domain.vercel.app/api/run?type=image&slot=morning&secret=YOUR_CRON_SECRET`
+- **Method**: `POST`
+- **Schedule**: Every day at 9:00 AM (e.g. `0 9 * * *`)
+
+### Task 2: Video Reel Explainer
+- **URL**: `https://your-domain.vercel.app/api/run?type=video&slot=weekly&secret=YOUR_CRON_SECRET`
+- **Method**: `POST`
+- **Schedule**: Every 2 or 3 days at 2:00 PM (e.g. `0 14 */2 * *`)
+
+---
+
+## 5. Pipeline Stages & Safeguards
+
+```
+[Cron Trigger]
+      │
+      ▼
+┌──────────────┐
+│   COLLECT    │ ── Pulls jobs from DinoMate (ENTRY filter) + Lever + Greenhouse
+└──────────────┘
+      │
+      ▼
+┌──────────────┐
+│    DEDUPE    │ ── SHA-256 (company+title+location), filters >48h old, senior roles
+└──────────────┘
+      │
+      ▼
+┌──────────────┐
+│     RANK     │ ── AI evaluates and ranks top 5 fresher jobs (0-100 score)
+└──────────────┘
+      │
+      ▼
+┌──────────────┐
+│    WRITE     │ ── AI crafts viral caption with CTA ("Comment JOBS")
+└──────────────┘
+      │
+      ▼
+┌──────────────┐
+│    RENDER    │ ── Edge runtime builds 1080x1350 carousel or 1080x1920 reel cards
+└──────────────┘
+      │
+      ▼
+┌──────────────┐
+│   PUBLISH    │ ── Dispatches to Zernio API across all connected platforms
+└──────────────┘
+      │
+      ▼
+┌──────────────┐
+│    AUDIT     │ ── Logs run timeline, jobs ledger, and LLM costs to MongoDB
+└──────────────┘
+```
+
+### Safety Features:
+- **Idempotency Guard**: Same slot executed on the same day is rejected safely to prevent duplicate postings.
+- **Immediate Response**: Cron callers receive an instant `200 OK` JSON response within 200ms; work continues asynchronously.
+- **Engine Kill Switch**: Setting `ENGINE_KILL_SWITCH=true` in `.env` immediately pauses all cron executions during maintenance.

@@ -1,25 +1,47 @@
-# LiteLLM Gateway Notes
+# 🧠 AI Gateway & Multi-Model Architecture
 
-## Repository
-- **Upstream**: [BerriAI/litellm](https://github.com/BerriAI/litellm)
-- **Role**: Unified OpenAI-compatible proxy gateway for all LLM calls.
+## Overview
+The Social Engine features a resilient, serverless-native AI Gateway located in [`lib/litellm.ts`](../../lib/litellm.ts) designed for zero-cost operation and maximum uptime.
 
-## Key Decisions & Implementation
-1. **Zero Secret Leakage**:
-   - The application worker and web services **never receive or store** Gemini, Groq, or OpenRouter keys.
-   - All upstream provider keys live solely inside the `litellm` Docker container environment.
-   - The app talks to `http://litellm:4000/v1` with a virtual key (`LITELLM_VIRTUAL_KEY`).
+If any provider encounters rate limits (`429`), timeouts, or outages (`503`), the gateway automatically cascades to the next provider in the chain without crashing the pipeline.
 
-2. **Aliases Defined**:
-   - `fast`: Gemini 2.5 Flash -> Groq Llama 3.1 8B -> OpenRouter free -> local Ollama.
-     - Used for: JSON parsing, classification, eligibility scoring, ATS filtering.
-   - `writer`: Groq Llama 3.3 70B -> Gemini 2.5 Flash -> OpenRouter -> local Ollama.
-     - Used for: caption drafting, hooks, viral copy generation.
-   - `writer-local`: Local Ollama Llama 3.2 on host machine (`http://host.docker.internal:11434`).
-     - Used for: offline emergency fallback.
+---
 
-3. **Database Logging**:
-   - Every single completion call records:
-     - `alias`, `model`, `promptTokens`, `completionTokens`, `totalTokens`, `costUsd`, `latencyMs`.
-     - `promptPreview` and `responsePreview` are automatically scrubbed by `redactSensitive()`.
+## ⚡ Fallback Priority Chain
 
+```
+1. Google AI Studio (Gemini 2.0 Flash)
+     │   • Ultra-fast (~1s latency)
+     ▼   • High free-tier quota
+2. IteraCompute (qwen/qwen3.8-27b)
+     │   • 100% Free ("is_free": true, $0 cost)
+     ▼   • 262k context window, 8,192 max output tokens
+3. OpenRouter Free Tier Rotation
+     │   • dots-studio/dots-3-note-preview:free (512k context, clean JSON)
+     │   • nvidia/nemotron-3.5-lightning:free (1M context, deep reasoning)
+     │   • xingchen-agi/xing4.0-29b-a4b:free (262k context)
+     ▼   • google/gemma-4-31b-it:free (262k context)
+4. Groq Free Cloud (Llama 3.3 70B & 8B)
+     │   • Fast inference fallback
+     ▼
+5. LiteLLM Proxy Gateway (if self-hosted)
+```
+
+---
+
+## 🛡️ Key Features
+
+1. **Reasoning Token Filtering**:
+   - Advanced reasoning models (like Nemotron) emit `<think>...</think>` internal blocks.
+   - The gateway automatically strips internal thoughts using `cleanModelOutput()` so social media captions and JSON payloads remain 100% clean and user-ready.
+
+2. **Strict JSON Parsing**:
+   - Robust `extractJson()` helper handles raw JSON, markdown-fenced code blocks (` ```json ... ``` `), and unescaped payloads seamlessly.
+
+3. **MongoDB Audit Trail**:
+   - Every single AI call automatically saves an entry to the `LlmCall` collection:
+     - `alias`: e.g. `fast [iteracompute:qwen/qwen3.8-27b]`
+     - `prompt`: Sanitized prompt text
+     - `response`: Clean output text
+     - `totalTokens`, `estimatedCostUsd`, `latencyMs`, `success`, `errorMessage`
+   - Visible in real-time under the **AI Activity** tab of the dashboard.

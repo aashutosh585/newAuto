@@ -1,23 +1,32 @@
-# Remotion Video Notes
+# 🎬 Video Reel & Shorts Architecture
 
-## Repository
-- **Upstream**: [remotion-dev/remotion](https://github.com/remotion-dev/remotion)
-- **Role**: Programmatic video creation in React for YouTube Shorts and Instagram Reels.
+## Overview
+The video generation system is implemented in [`lib/video-pipeline.ts`](../../lib/video-pipeline.ts) and [`app/api/og/reel/route.tsx`](../../app/api/og/reel/route.tsx), specifically tailored for **YouTube Shorts** and **Instagram Reels** (9:16 vertical, 1080×1920).
 
-## Architecture & Implementation
-1. **Pipeline Position**:
-   - Executes during the `RENDER` stage (Step 8 roadmap).
-   - Template Structure:
-     - 0-3s: Viral Hook (Big text, audio stinger, high-contrast title).
-     - 3-18s: Value delivery (Top 3-4 fresher openings, badges, eligibility).
-     - 18-25s: Strong Call-To-Action (Comment "JOBS", link in bio/Telegram).
+Triggered automatically every 2–3 days via external cron (`/api/run?type=video`) or manually via the dashboard.
 
-2. **Audio & Subtitles**:
-   - Voiceover: `edge-tts` (Microsoft natural TTS voices) or `Kokoro` fast offline TTS.
-   - Subtitles: Auto-aligned word-by-word captions synced with audio timestamps.
+---
 
-3. **Fallback Chain**:
-   - If Remotion rendering fails or times out:
-     1. Fallback to simpler static-card video template.
-     2. Fallback to carousel image posting only (never crash the entire run).
+## 📐 Scene Sequence (45-Second Reel Structure)
 
+| Scene | Duration | Visual Card | Content |
+| :--- | :---: | :--- | :--- |
+| **1. Hook** | 0–5s | `scene=hook` | High-contrast title (*"What Does A [Role] Actually Do?"*), fresher guide badge, stop-scrolling hook. |
+| **2. Eligibility** | 5–18s | `scene=eligibility` | Batches (2024–2026), eligible degrees (B.Tech, BCA, MCA, BSc), 0–1 yr experience. |
+| **3. Skills Breakdown** | 18–32s | `scene=skills` | Top 4 tech skills tested in interviews, round-by-round breakdown (OA, Tech, HR). |
+| **4. Compensation** | 32–40s | `scene=salary` | Entry-level CTC ranges (₹4.5–₹14 LPA), actively hiring companies in India. |
+| **5. Call to Action** | 40–45s | `scene=cta` | Comment *"APPLY"* for direct links + follow `@dinomate`. |
+
+---
+
+## 🤖 AI Script Generation
+The script and role parameters are automatically generated per run by the multi-model AI gateway:
+- Pulls live, active job roles from the **DinoMate API** (`developer fresher` queries).
+- Generates structured JSON containing `role`, `batch`, `degrees`, `skills`, `salary`, `companies`, `scriptHook`, `scriptValue`, and a viral platform `caption`.
+
+---
+
+## 🚀 Publishing
+- Renders high-resolution 9:16 vertical cards via the Next.js Edge runtime at `/api/og/reel`.
+- Dispatched to **Zernio** to publish across connected accounts (Instagram, YouTube, Telegram, Twitter/X).
+- Logged to the MongoDB `Asset` and `Post` collections.
