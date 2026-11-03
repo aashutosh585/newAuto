@@ -1,0 +1,16 @@
+node_modules/
+dist/
+build/
+.next/
+.cache/
+*.log
+*.env
+!.env.example
+*.tmp
+temp/
+coverage/
+.turbo/
+.DS_Store
+Thumbs.db
+vendor/*
+!vendor/.gitkeep

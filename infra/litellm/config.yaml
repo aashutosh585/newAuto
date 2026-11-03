@@ -1,0 +1,67 @@
+model_list:
+  # Alias: fast (used for parsing, classification, liveness analysis, deduplication)
+  - model_name: fast
+    litellm_params:
+      model: gemini/gemini-2.5-flash
+      api_key: os.environ/GEMINI_API_KEY
+      rpm: 15
+      tpm: 1000000
+
+  - model_name: fast
+    litellm_params:
+      model: groq/llama-3.1-8b-instant
+      api_key: os.environ/GROQ_API_KEY
+      rpm: 30
+
+  - model_name: fast
+    litellm_params:
+      model: openrouter/meta-llama/llama-3.1-8b-instruct:free
+      api_key: os.environ/OPENROUTER_API_KEY
+
+  - model_name: fast
+    litellm_params:
+      model: ollama/llama3.2
+      api_base: os.environ/OLLAMA_BASE_URL
+
+  # Alias: writer (used for caption generation, hook crafting, ranking synthesis)
+  - model_name: writer
+    litellm_params:
+      model: groq/llama-3.3-70b-versatile
+      api_key: os.environ/GROQ_API_KEY
+      rpm: 30
+
+  - model_name: writer
+    litellm_params:
+      model: gemini/gemini-2.5-flash
+      api_key: os.environ/GEMINI_API_KEY
+
+  - model_name: writer
+    litellm_params:
+      model: openrouter/meta-llama/llama-3.3-70b-instruct:free
+      api_key: os.environ/OPENROUTER_API_KEY
+
+  - model_name: writer
+    litellm_params:
+      model: ollama/llama3.2
+      api_base: os.environ/OLLAMA_BASE_URL
+
+  # Alias: writer-local (guaranteed offline/local fallback)
+  - model_name: writer-local
+    litellm_params:
+      model: ollama/llama3.2
+      api_base: os.environ/OLLAMA_BASE_URL
+
+router_settings:
+  routing_strategy: usage-based-routing
+  model_group_alias:
+    "fast-fallback": "fast"
+    "writer-fallback": "writer"
+  fallbacks:
+    - fast: ["fast"]
+    - writer: ["fast", "writer-local"]
+  num_retries: 2
+  request_timeout: 35
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  store_model_in_db: false
