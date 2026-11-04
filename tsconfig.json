@@ -23,6 +23,6 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "AI-Social-Media-Automation"]
+  "exclude": ["node_modules", "AI-Social-Media-Automation", "videoHelp", "realisticHelp", "archive"]
 }
 

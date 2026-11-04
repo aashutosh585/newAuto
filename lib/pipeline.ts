@@ -64,15 +64,16 @@ function buildCarouselUrls(
   const base = baseUrl.replace(/\/+$/, '');
   const urls: string[] = [];
 
-  // Slide 0: Cover
+  // Slide 0: Cover (4x4 / 1:1 square ratio)
   urls.push(
-    `${base}/api/og/carousel?slide=cover&count=${jobs.length}`
+    `${base}/api/og/carousel?slide=cover&count=${jobs.length}&aspect=1:1`
   );
 
-  // Slides 1..N: One per job
+  // Slides 1..N: One per job (4x4 / 1:1 square ratio)
   jobs.forEach((job, i) => {
     const params = new URLSearchParams({
       slide: 'job',
+      aspect: '1:1',
       index: String(i + 1),
       total: String(jobs.length),
       company: job.company,
@@ -85,8 +86,8 @@ function buildCarouselUrls(
     urls.push(`${base}/api/og/carousel?${params.toString()}`);
   });
 
-  // Last slide: CTA / brand
-  urls.push(`${base}/api/og/carousel?slide=cta`);
+  // Last slide: CTA / brand (4x4 / 1:1 square ratio)
+  urls.push(`${base}/api/og/carousel?slide=cta&aspect=1:1`);
 
   return urls;
 }

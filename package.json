@@ -6,7 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:video": "tsx Test/video/test_video.ts",
+    "test:variety": "tsx Test/video/test_variety_engine.ts",
+    "test:image": "tsx Test/image/test_image.ts",
+    "test:system": "tsx Test/system/test_system.ts",
+    "test:pipeline": "tsx Test/pipeline/test_pipeline.ts"
   },
   "dependencies": {
     "@zernio/node": "^0.2.215",
@@ -23,6 +28,7 @@
     "tailwind-merge": "^3.0.2"
   },
   "devDependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.9",
     "@types/node": "^22.13.4",

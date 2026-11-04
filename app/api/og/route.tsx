@@ -9,22 +9,30 @@ export async function GET(req: NextRequest) {
   const title = searchParams.get('title') || 'Software Engineer Fresher';
   const company = searchParams.get('company') || 'TECH COMPANY';
   const location = searchParams.get('location') || 'Remote / India';
-  const batch = searchParams.get('batch') || '2024 / 2025 Graduates';
-  const salary = searchParams.get('salary') || 'Competitive CTC';
+  const batch = searchParams.get('batch') || '2024 / 2025 / 2026';
+  const salary = (searchParams.get('salary') || 'Rs. 6 - 14 LPA').replace(/₹/g, 'Rs. ');
+  const skills = (searchParams.get('skills') || 'React,Node.js,TypeScript,DSA').split(',').map((s) => s.trim()).filter(Boolean);
+  
+  // Aspect ratio: Default to 4x4 ratio (1080x1080 square) as requested
+  const aspect = searchParams.get('aspect') || searchParams.get('ratio') || '1:1';
+  const isSquare = aspect === '1:1' || aspect === '4:4' || aspect === '4*4' || aspect === 'square';
+  const width = 1080;
+  const height = isSquare ? 1080 : 1350;
+
   const dateStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
   return new ImageResponse(
     (
       <div
         style={{
-          width: '1080px',
-          height: '1350px',
+          width: `${width}px`,
+          height: `${height}px`,
           backgroundColor: '#090D16',
-          backgroundImage: 'radial-gradient(circle at 90% 10%, rgba(37, 99, 235, 0.35) 0%, transparent 60%)',
+          backgroundImage: 'radial-gradient(circle at 90% 10%, rgba(37, 99, 235, 0.4) 0%, transparent 60%)',
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'space-between',
-          padding: '80px',
+          padding: isSquare ? '52px 64px' : '70px 80px',
           color: '#ffffff',
           fontFamily: 'sans-serif',
         }}
@@ -37,27 +45,30 @@ export async function GET(req: NextRequest) {
               alignItems: 'center',
               backgroundColor: '#1E293B',
               border: '2px solid #334155',
-              padding: '12px 28px',
+              padding: '10px 24px',
               borderRadius: '50px',
               alignSelf: 'flex-start',
               color: '#38BDF8',
-              fontSize: '24px',
+              fontSize: '20px',
               fontWeight: 800,
               letterSpacing: '2px',
               textTransform: 'uppercase',
             }}
           >
-            ⚡ VERIFIED HIRING • {dateStr}
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="#38BDF8" style={{ display: 'flex', marginRight: '8px' }}>
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
+            <span>VERIFIED HIRING • {dateStr}</span>
           </div>
 
           <div
             style={{
-              fontSize: '36px',
+              fontSize: isSquare ? '28px' : '34px',
               fontWeight: 800,
               color: '#94A3B8',
               textTransform: 'uppercase',
-              letterSpacing: '3px',
-              marginTop: '50px',
+              letterSpacing: '2px',
+              marginTop: isSquare ? '28px' : '38px',
             }}
           >
             {company}
@@ -65,15 +76,36 @@ export async function GET(req: NextRequest) {
 
           <div
             style={{
-              fontSize: '68px',
+              fontSize: isSquare ? '54px' : '64px',
               fontWeight: 900,
               lineHeight: 1.15,
               color: '#FFFFFF',
-              marginTop: '16px',
+              marginTop: '10px',
               letterSpacing: '-1.5px',
             }}
           >
             {title}
+          </div>
+
+          {/* Skill Pills */}
+          <div style={{ display: 'flex', gap: '10px', marginTop: '16px', flexWrap: 'wrap' }}>
+            {skills.slice(0, 4).map((skill, idx) => (
+              <div
+                key={idx}
+                style={{
+                  display: 'flex',
+                  backgroundColor: '#1E293B',
+                  border: '1px solid #475569',
+                  padding: '6px 16px',
+                  borderRadius: '12px',
+                  fontSize: '18px',
+                  fontWeight: 700,
+                  color: '#CBD5E1',
+                }}
+              >
+                {skill}
+              </div>
+            ))}
           </div>
         </div>
 
@@ -82,28 +114,28 @@ export async function GET(req: NextRequest) {
           style={{
             backgroundColor: '#0F172A',
             border: '2px solid #1E293B',
-            borderRadius: '32px',
-            padding: '50px',
+            borderRadius: '28px',
+            padding: isSquare ? '28px 36px' : '40px 48px',
             display: 'flex',
             flexDirection: 'column',
-            gap: '28px',
+            gap: isSquare ? '18px' : '24px',
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: '22px', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>
+              <span style={{ fontSize: '18px', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>
                 ELIGIBLE BATCH
               </span>
-              <span style={{ fontSize: '36px', color: '#F8FAFC', fontWeight: 800, marginTop: '8px' }}>
+              <span style={{ fontSize: isSquare ? '28px' : '34px', color: '#F8FAFC', fontWeight: 800, marginTop: '6px' }}>
                 {batch}
               </span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: '22px', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>
+              <span style={{ fontSize: '18px', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>
                 LOCATION
               </span>
-              <span style={{ fontSize: '36px', color: '#F8FAFC', fontWeight: 800, marginTop: '8px' }}>
+              <span style={{ fontSize: isSquare ? '28px' : '34px', color: '#F8FAFC', fontWeight: 800, marginTop: '6px' }}>
                 {location}
               </span>
             </div>
@@ -114,19 +146,19 @@ export async function GET(req: NextRequest) {
               display: 'flex',
               flexDirection: 'column',
               borderTop: '2px solid #1E293B',
-              paddingTop: '28px',
+              paddingTop: isSquare ? '16px' : '22px',
             }}
           >
-            <span style={{ fontSize: '22px', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>
+            <span style={{ fontSize: '18px', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>
               PACKAGE / STIPEND
             </span>
-            <span style={{ fontSize: '38px', color: '#10B981', fontWeight: 900, marginTop: '8px' }}>
+            <span style={{ fontSize: isSquare ? '32px' : '38px', color: '#10B981', fontWeight: 900, marginTop: '4px' }}>
               {salary}
             </span>
           </div>
         </div>
 
-        {/* Bottom CTA Card */}
+        {/* Bottom CTA Card with SVG Arrow (No Broken Font Glyphs) */}
         <div
           style={{
             display: 'flex',
@@ -134,37 +166,53 @@ export async function GET(req: NextRequest) {
             alignItems: 'center',
             backgroundColor: '#1E1B4B',
             border: '2px solid #3B82F6',
-            borderRadius: '28px',
-            padding: '36px 44px',
+            borderRadius: '24px',
+            padding: isSquare ? '24px 32px' : '32px 40px',
           }}
         >
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <span style={{ fontSize: '32px', fontWeight: 900, color: '#FFFFFF' }}>
+            <span style={{ fontSize: isSquare ? '24px' : '28px', fontWeight: 900, color: '#FFFFFF' }}>
               Want Direct Apply Links?
             </span>
-            <span style={{ fontSize: '22px', color: '#93C5FD', marginTop: '6px' }}>
+            <span style={{ fontSize: isSquare ? '18px' : '20px', color: '#93C5FD', marginTop: '4px' }}>
               Comment &quot;JOBS&quot; below for instant DM link!
             </span>
           </div>
           <div
             style={{
+              display: 'flex',
+              alignItems: 'center',
               backgroundColor: '#3B82F6',
               color: '#FFFFFF',
-              padding: '16px 32px',
-              borderRadius: '20px',
-              fontSize: '24px',
+              padding: isSquare ? '12px 24px' : '14px 28px',
+              borderRadius: '16px',
+              fontSize: isSquare ? '20px' : '22px',
               fontWeight: 800,
+              gap: '8px',
             }}
           >
-            Apply Now ➔
+            <span>Apply Now</span>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#FFFFFF"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ display: 'flex' }}
+            >
+              <line x1="5" y1="12" x2="19" y2="12" />
+              <polyline points="12 5 19 12 12 19" />
+            </svg>
           </div>
         </div>
       </div>
     ),
     {
-      width: 1080,
-      height: 1350,
+      width,
+      height,
     }
   );
 }
-

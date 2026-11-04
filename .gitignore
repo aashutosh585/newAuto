@@ -12,7 +12,13 @@ coverage/
 .turbo/
 .DS_Store
 Thumbs.db
-vendor/*
-!vendor/.gitkeep
+.temp_audio/
 AI-Social-Media-Automation
+videoHelp
+.temp_video/
+*.mp4
+public/videos/*
+!public/videos/.gitkeep
+1.txt
+realisticHelp
 

@@ -131,7 +131,34 @@ export async function executeLLM<T = any>(options: CompletionOptions): Promise<C
   }
 
   // =========================================================================
-  // 2. Direct Gemini (Google 2.0 Flash - Fast & High Quota)
+  // 2. Groq (Ultra-Fast: ~0.8s - 1.5s latency with Llama 3.3 70B & 3.1 8B)
+  // =========================================================================
+  const groqKey = process.env.GROQ_API_KEY;
+  if (groqKey) {
+    try {
+      const groqModel = alias === 'writer' ? 'llama-3.3-70b-versatile' : 'llama-3.1-8b-instant';
+      const payload: Record<string, any> = { model: groqModel, messages, temperature };
+      if (jsonMode) payload.response_format = { type: 'json_object' };
+
+      const res = await axios.post('https://api.groq.com/openai/v1/chat/completions', payload, {
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${groqKey}` },
+        timeout: 20000,
+      });
+
+      const rawText = cleanModelOutput(res.data?.choices?.[0]?.message?.content || '');
+      const data = jsonMode ? extractJson<T>(rawText) : undefined;
+      const latencyMs = Date.now() - t0;
+      const totalTokens = res.data?.usage?.total_tokens || 0;
+
+      await saveLlmLog({ runId, alias, prompt: promptText, response: rawText, totalTokens, latencyMs, success: true, provider: `groq:${groqModel}` });
+      return { text: rawText, data, model: groqModel, totalTokens, latencyMs };
+    } catch (groqErr: any) {
+      errors.push(`Groq: ${groqErr.response?.data?.error?.message || groqErr.message}`);
+    }
+  }
+
+  // =========================================================================
+  // 3. Direct Gemini (Google 2.0 Flash - Fast ~1.5s & High Quota)
   // =========================================================================
   const geminiKey = process.env.GEMINI_API_KEY;
   if (geminiKey) {
@@ -161,48 +188,63 @@ export async function executeLLM<T = any>(options: CompletionOptions): Promise<C
   }
 
   // =========================================================================
-  // 3. IteraCompute (Free Qwen 27B - is_free: true, 262k context window)
+  // 4. MoonMath AI (Fast ~2.8s, DeepSeek v4.1 Flash & GLM 5.3 Flash - 1M Context)
   // =========================================================================
-  const iteraKey = process.env.ITERACOMPUTE_API_KEY;
-  if (iteraKey) {
-    try {
-      const iteraModel = process.env.ITERACOMPUTE_MODEL || 'qwen/qwen3.8-27b';
-      const payload: Record<string, any> = {
-        model: iteraModel,
-        messages,
-        temperature,
-        max_tokens: 1024,
-        chat_template_kwargs: { enable_thinking: false },
-      };
-      if (jsonMode) {
-        payload.response_format = { type: 'json_object' };
+  const moonMathKey = process.env.MOONMATH_API_KEY;
+  if (moonMathKey) {
+    const moonMathBase = process.env.MOONMATH_BASE_URL || 'https://zro.moonmath.ai/v1';
+    const moonMathModels = [
+      process.env.MOONMATH_MODEL || 'deepseek-v4.1-flash',
+      process.env.MOONMATH_FALLBACK_MODEL || 'glm-5.3-flash',
+    ];
+
+    for (const modelId of moonMathModels) {
+      try {
+        const payload: Record<string, any> = {
+          model: modelId,
+          messages,
+          temperature,
+          max_tokens: 1500,
+        };
+        if (jsonMode) {
+          payload.response_format = { type: 'json_object' };
+        }
+
+        const res = await axios.post(`${moonMathBase.replace(/\/+$/, '')}/chat/completions`, payload, {
+          headers: {
+            Authorization: `Bearer ${moonMathKey}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 25000,
+        });
+
+        const choice = res.data?.choices?.[0];
+        const rawText = cleanModelOutput(choice?.message?.content || choice?.message?.reasoning || '');
+        const data = jsonMode ? extractJson<T>(rawText) : undefined;
+        const latencyMs = Date.now() - t0;
+        const totalTokens = res.data?.usage?.total_tokens || 0;
+
+        if (rawText) {
+          await saveLlmLog({
+            runId,
+            alias,
+            prompt: promptText,
+            response: rawText,
+            totalTokens,
+            latencyMs,
+            success: true,
+            provider: `moonmath:${modelId}`,
+          });
+          return { text: rawText, data, model: modelId, totalTokens, latencyMs };
+        }
+      } catch (mmErr: any) {
+        errors.push(`MoonMath (${modelId}): ${mmErr.response?.data?.error?.message || mmErr.message}`);
       }
-
-      const res = await axios.post('https://api.iteracompute.com/v1/chat/completions', payload, {
-        headers: {
-          Authorization: `Bearer ${iteraKey}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 45000,
-      });
-
-      const choice = res.data?.choices?.[0];
-      const rawText = cleanModelOutput(choice?.message?.content || choice?.message?.reasoning || '');
-      const data = jsonMode ? extractJson<T>(rawText) : undefined;
-      const latencyMs = Date.now() - t0;
-      const totalTokens = res.data?.usage?.total_tokens || 0;
-
-      if (rawText) {
-        await saveLlmLog({ runId, alias, prompt: promptText, response: rawText, totalTokens, latencyMs, success: true, provider: `iteracompute:${iteraModel}` });
-        return { text: rawText, data, model: iteraModel, totalTokens, latencyMs };
-      }
-    } catch (iErr: any) {
-      errors.push(`IteraCompute: ${iErr.response?.data?.error?.message || iErr.message}`);
     }
   }
 
   // =========================================================================
-  // 4. OpenRouter Multi-Model Free Fallback
+  // 5. OpenRouter Multi-Model Free Rotation (~3s - 6s latency)
   // Models: Nemotron 3.5 Lightning (1M context), XingChen 29B, Dots3, Gemma 4
   // =========================================================================
   const openRouterKey = process.env.OPENROUTER_API_KEY;
@@ -210,8 +252,8 @@ export async function executeLLM<T = any>(options: CompletionOptions): Promise<C
     const freeOpenRouterModels = [
       'dots-studio/dots-3-note-preview:free',
       'nvidia/nemotron-3.5-lightning:free',
-      'xingchen-agi/xing4.0-29b-a4b:free',
       'google/gemma-4-31b-it:free',
+      'xingchen-agi/xing4.0-29b-a4b:free',
     ];
 
     for (const modelId of freeOpenRouterModels) {
@@ -253,29 +295,44 @@ export async function executeLLM<T = any>(options: CompletionOptions): Promise<C
   }
 
   // =========================================================================
-  // 5. Groq Fallback (Llama 3.3 70B / Llama 3.1 8B)
+  // 6. IteraCompute (Slow / High Latency: 25-45s cold start - PLACED IN LAST)
+  // Kept as final free fallback when all lower-latency models are unavailable
   // =========================================================================
-  const groqKey = process.env.GROQ_API_KEY;
-  if (groqKey) {
+  const iteraKey = process.env.ITERACOMPUTE_API_KEY;
+  if (iteraKey) {
     try {
-      const groqModel = alias === 'writer' ? 'llama-3.3-70b-versatile' : 'llama-3.1-8b-instant';
-      const payload: Record<string, any> = { model: groqModel, messages, temperature };
-      if (jsonMode) payload.response_format = { type: 'json_object' };
+      const iteraModel = process.env.ITERACOMPUTE_MODEL || 'qwen/qwen3.8-27b';
+      const payload: Record<string, any> = {
+        model: iteraModel,
+        messages,
+        temperature,
+        max_tokens: 1024,
+        chat_template_kwargs: { enable_thinking: false },
+      };
+      if (jsonMode) {
+        payload.response_format = { type: 'json_object' };
+      }
 
-      const res = await axios.post('https://api.groq.com/openai/v1/chat/completions', payload, {
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${groqKey}` },
-        timeout: 25000,
+      const res = await axios.post('https://api.iteracompute.com/v1/chat/completions', payload, {
+        headers: {
+          Authorization: `Bearer ${iteraKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 50000,
       });
 
-      const rawText = cleanModelOutput(res.data?.choices?.[0]?.message?.content || '');
+      const choice = res.data?.choices?.[0];
+      const rawText = cleanModelOutput(choice?.message?.content || choice?.message?.reasoning || '');
       const data = jsonMode ? extractJson<T>(rawText) : undefined;
       const latencyMs = Date.now() - t0;
       const totalTokens = res.data?.usage?.total_tokens || 0;
 
-      await saveLlmLog({ runId, alias, prompt: promptText, response: rawText, totalTokens, latencyMs, success: true, provider: `groq:${groqModel}` });
-      return { text: rawText, data, model: groqModel, totalTokens, latencyMs };
-    } catch (groqErr: any) {
-      errors.push(`Groq: ${groqErr.response?.data?.error?.message || groqErr.message}`);
+      if (rawText) {
+        await saveLlmLog({ runId, alias, prompt: promptText, response: rawText, totalTokens, latencyMs, success: true, provider: `iteracompute:${iteraModel}` });
+        return { text: rawText, data, model: iteraModel, totalTokens, latencyMs };
+      }
+    } catch (iErr: any) {
+      errors.push(`IteraCompute: ${iErr.response?.data?.error?.message || iErr.message}`);
     }
   }
 

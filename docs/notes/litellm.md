@@ -13,18 +13,22 @@ If any provider encounters rate limits (`429`), timeouts, or outages (`503`), th
 1. Google AI Studio (Gemini 2.0 Flash)
      │   • Ultra-fast (~1s latency)
      ▼   • High free-tier quota
-2. IteraCompute (qwen/qwen3.8-27b)
+2. MoonMath AI (DeepSeek v4.1 Flash & GLM 5.3 Flash)
+     │   • 1,048,576 tokens (1M Context Window!)
+     │   • 64,000 max output tokens
+     ▼   • Native JSON mode & reasoning support
+3. IteraCompute (qwen/qwen3.8-27b)
      │   • 100% Free ("is_free": true, $0 cost)
      ▼   • 262k context window, 8,192 max output tokens
-3. OpenRouter Free Tier Rotation
+4. OpenRouter Free Tier Rotation
      │   • dots-studio/dots-3-note-preview:free (512k context, clean JSON)
      │   • nvidia/nemotron-3.5-lightning:free (1M context, deep reasoning)
      │   • xingchen-agi/xing4.0-29b-a4b:free (262k context)
      ▼   • google/gemma-4-31b-it:free (262k context)
-4. Groq Free Cloud (Llama 3.3 70B & 8B)
+5. Groq Free Cloud (Llama 3.3 70B & 8B)
      │   • Fast inference fallback
      ▼
-5. LiteLLM Proxy Gateway (if self-hosted)
+6. LiteLLM Proxy Gateway (if self-hosted)
 ```
 
 ---

@@ -13,6 +13,7 @@
 - **📸 1080×1350 Multi-Slide Carousels**: Edge-rendered 5–6 slide carousels (Hook slide, 4 job cards with skills & salary, and DinoMate CTA slide).
 - **🎬 1080×1920 Vertical Video Reels**: Automated 9:16 job role explainer reels for YouTube Shorts and Instagram Reels (Hook, Eligibility, Required Skills, Salary & Hiring Companies, Call To Action).
 - **🤖 Multi-Model Free AI Gateway**:
+  - **MoonMath AI**: Latest `deepseek-v4.1-flash` and `glm-5.3-flash` (1,048,576 tokens / 1M Context Window, 64k max output).
   - **IteraCompute**: Free `qwen/qwen3.8-27b` (262k context, 0 cost).
   - **OpenRouter Free Rotation**: `dots-studio/dots-3-note-preview:free`, `nvidia/nemotron-3.5-lightning:free` (1M context), `xingchen-agi/xing4.0-29b-a4b:free`, `google/gemma-4-31b-it:free`.
   - **Gemini 2.0 Flash**: High-speed, primary fallback.
@@ -161,6 +162,46 @@ To achieve **zero human effort**, configure two automated tasks in [cron-job.org
 | `/api/llm-activity` | `GET` | Detailed audit logs for every AI prompt, response, tokens, and latency. |
 | `/api/social/accounts` | `GET` | Lists all connected Zernio accounts. |
 | `/api/social/auth-url` | `POST` | Generates OAuth connect URLs or Telegram bot verification codes. |
+
+---
+
+## 🧪 Automated Test Suites
+
+All tests are organized under the [`/Test`](file:///a:/Ashutosh%20Maurya/YT%20web%20D/Advance_/Automation/newAuto/Test) directory:
+
+```bash
+# 1. Video Reel Generation & MP4 Video Assembly Test
+# Ingests jobs -> Generates AI 45s script -> Renders 5 1080x1920 frames -> Assembles real .mp4 video
+pnpm run test:video
+
+# 2. Daily Image Carousel Generation Test
+# Ingests jobs -> Formats 5-slide copy -> Renders and validates 1080x1350 PNG slides
+pnpm run test:image
+
+# 3. System & Integration Health Audit
+# Verifies MongoDB, DinoMate API, Zernio social channels, and benchmarks LLM gateway
+pnpm run test:system
+
+# 4. External Cron Pipeline Trigger Test
+# Tests security (HTTP 401 rejection) and non-blocking HTTP 200 background execution
+pnpm run test:pipeline
+```
+
+### 📁 Test Directory Structure
+
+```
+Test/
+├── video/
+│   ├── test_video.ts         # Funny friend roast & multi-archetype video generator
+│   └── output_reel.mp4       # Playable 1080x1920 MP4 video with synced neural audio
+├── image/
+│   ├── test_image.ts         # 4x4 (1080x1080) square carousel slide generator
+│   └── sample_slide.png      # Clean sample slide output (SVG arrow button)
+├── system/
+│   └── test_system.ts        # DB audit, API keys, Zernio, and LLM benchmark
+└── pipeline/
+    └── test_pipeline.ts      # Cron webhook trigger, authentication & job records
+```
 
 ---
 

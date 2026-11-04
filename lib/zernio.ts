@@ -2,9 +2,9 @@ import { Zernio } from '@zernio/node';
 import connectToDatabase from './mongodb';
 import Profile from '../models/Profile';
 
-const apiKey = process.env.ZERNIO_API_KEY || '';
+const apiKey = process.env.ZERNIO_API_KEY || 'unconfigured_zernio_token';
 
-if (!apiKey) {
+if (!process.env.ZERNIO_API_KEY) {
   console.warn('⚠️ Warning: ZERNIO_API_KEY is not defined in environment variables.');
 }
 

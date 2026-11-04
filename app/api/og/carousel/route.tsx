@@ -19,12 +19,12 @@ const SLATE = '#64748B';
 const WHITE = '#F8FAFC';
 const ACCENT = '#38BDF8';
 
-function CoverSlide({ count, date }: { count: number; date: string }) {
+function CoverSlide({ count, date, isSquare = false }: { count: number; date: string; isSquare?: boolean }) {
   return (
     <div
       style={{
         width: '1080px',
-        height: '1350px',
+        height: isSquare ? '1080px' : '1350px',
         backgroundColor: BG,
         backgroundImage:
           'radial-gradient(circle at 80% 15%, rgba(59,130,246,0.4) 0%, transparent 55%), radial-gradient(circle at 20% 85%, rgba(16,185,129,0.2) 0%, transparent 50%)',
@@ -32,7 +32,7 @@ function CoverSlide({ count, date }: { count: number; date: string }) {
         flexDirection: 'column',
         justifyContent: 'center',
         alignItems: 'center',
-        padding: '80px',
+        padding: isSquare ? '48px 60px' : '80px',
         fontFamily: 'sans-serif',
       }}
     >
@@ -42,14 +42,14 @@ function CoverSlide({ count, date }: { count: number; date: string }) {
           display: 'flex',
           backgroundColor: '#1E293B',
           border: '2px solid #334155',
-          padding: '12px 32px',
+          padding: isSquare ? '10px 26px' : '12px 32px',
           borderRadius: '50px',
           color: ACCENT,
-          fontSize: '26px',
+          fontSize: isSquare ? '22px' : '26px',
           fontWeight: 800,
           letterSpacing: '2px',
           textTransform: 'uppercase',
-          marginBottom: '60px',
+          marginBottom: isSquare ? '36px' : '60px',
         }}
       >
         ⚡ URGENT HIRING ALERT
@@ -58,27 +58,27 @@ function CoverSlide({ count, date }: { count: number; date: string }) {
       {/* Headline */}
       <div
         style={{
-          fontSize: '96px',
+          fontSize: isSquare ? '80px' : '96px',
           fontWeight: 900,
           color: WHITE,
           textAlign: 'center',
           lineHeight: 1.1,
           letterSpacing: '-2px',
-          marginBottom: '30px',
+          marginBottom: isSquare ? '20px' : '30px',
         }}
       >
         {count} Fresher Jobs
       </div>
       <div
         style={{
-          fontSize: '40px',
+          fontSize: isSquare ? '32px' : '40px',
           fontWeight: 700,
           color: BLUE_LIGHT,
           textAlign: 'center',
-          marginBottom: '80px',
+          marginBottom: isSquare ? '48px' : '80px',
         }}
       >
-        Hiring RIGHT NOW → {date}
+        Hiring RIGHT NOW • {date}
       </div>
 
       {/* Swipe hint */}
@@ -86,16 +86,30 @@ function CoverSlide({ count, date }: { count: number; date: string }) {
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '16px',
+          gap: '12px',
           backgroundColor: '#1E1B4B',
           border: `2px solid ${BLUE}`,
           borderRadius: '24px',
-          padding: '24px 48px',
-          marginBottom: '60px',
+          padding: isSquare ? '18px 36px' : '24px 48px',
+          marginBottom: isSquare ? '40px' : '60px',
         }}
       >
-        <div style={{ fontSize: '32px', fontWeight: 800, color: WHITE }}>
-          Swipe to see all jobs →
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: isSquare ? '26px' : '32px', fontWeight: 800, color: WHITE }}>
+          <span>Swipe to see all jobs</span>
+          <svg
+            width={isSquare ? "22" : "28"}
+            height={isSquare ? "22" : "28"}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#FFFFFF"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ display: 'flex' }}
+          >
+            <line x1="5" y1="12" x2="19" y2="12" />
+            <polyline points="12 5 19 12 12 19" />
+          </svg>
         </div>
       </div>
 
@@ -103,7 +117,7 @@ function CoverSlide({ count, date }: { count: number; date: string }) {
       <div
         style={{
           position: 'absolute',
-          bottom: '60px',
+          bottom: isSquare ? '40px' : '60px',
           display: 'flex',
           alignItems: 'center',
           gap: '12px',
@@ -111,20 +125,20 @@ function CoverSlide({ count, date }: { count: number; date: string }) {
       >
         <div
           style={{
-            width: '48px',
-            height: '48px',
+            width: isSquare ? '40px' : '48px',
+            height: isSquare ? '40px' : '48px',
             backgroundColor: BLUE,
             borderRadius: '12px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: '28px',
+            fontSize: isSquare ? '24px' : '28px',
             fontWeight: 900,
           }}
         >
           D
         </div>
-        <div style={{ fontSize: '28px', fontWeight: 800, color: WHITE }}>
+        <div style={{ fontSize: isSquare ? '24px' : '28px', fontWeight: 800, color: WHITE }}>
           DinoMate Jobs
         </div>
       </div>
@@ -141,6 +155,7 @@ function JobSlide({
   batch,
   skills,
   workMode,
+  isSquare = false,
 }: {
   index: number;
   total: number;
@@ -150,6 +165,7 @@ function JobSlide({
   batch: string;
   skills: string[];
   workMode: string;
+  isSquare?: boolean;
 }) {
   const topSkills = skills.slice(0, 4);
   const workBadgeColor = workMode === 'REMOTE' ? GREEN : workMode === 'HYBRID' ? '#F59E0B' : BLUE;
@@ -158,13 +174,13 @@ function JobSlide({
     <div
       style={{
         width: '1080px',
-        height: '1350px',
+        height: isSquare ? '1080px' : '1350px',
         backgroundColor: BG,
         backgroundImage: 'radial-gradient(circle at 90% 10%, rgba(37,99,235,0.25) 0%, transparent 55%)',
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
-        padding: '70px',
+        padding: isSquare ? '44px 56px' : '70px',
         fontFamily: 'sans-serif',
       }}
     >
@@ -200,10 +216,10 @@ function JobSlide({
       </div>
 
       {/* Company + Role */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: isSquare ? '8px' : '12px' }}>
         <div
           style={{
-            fontSize: '32px',
+            fontSize: isSquare ? '26px' : '32px',
             fontWeight: 800,
             color: SLATE,
             textTransform: 'uppercase',
@@ -214,7 +230,7 @@ function JobSlide({
         </div>
         <div
           style={{
-            fontSize: '72px',
+            fontSize: isSquare ? '56px' : '72px',
             fontWeight: 900,
             color: WHITE,
             lineHeight: 1.1,
@@ -230,28 +246,28 @@ function JobSlide({
         style={{
           backgroundColor: CARD_BG,
           border: `2px solid ${BORDER}`,
-          borderRadius: '32px',
-          padding: '48px',
+          borderRadius: isSquare ? '24px' : '32px',
+          padding: isSquare ? '28px 38px' : '48px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '32px',
+          gap: isSquare ? '18px' : '32px',
         }}
       >
         {/* Location + Batch */}
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <span style={{ fontSize: '20px', color: SLATE, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <span style={{ fontSize: isSquare ? '17px' : '20px', color: SLATE, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
               📍 Location
             </span>
-            <span style={{ fontSize: '32px', color: WHITE, fontWeight: 800 }}>
+            <span style={{ fontSize: isSquare ? '26px' : '32px', color: WHITE, fontWeight: 800 }}>
               {location}
             </span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <span style={{ fontSize: '20px', color: SLATE, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <span style={{ fontSize: isSquare ? '17px' : '20px', color: SLATE, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
               🎓 Batch
             </span>
-            <span style={{ fontSize: '32px', color: WHITE, fontWeight: 800 }}>
+            <span style={{ fontSize: isSquare ? '26px' : '32px', color: WHITE, fontWeight: 800 }}>
               {batch}
             </span>
           </div>
@@ -259,11 +275,11 @@ function JobSlide({
 
         {/* Skills */}
         {topSkills.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', borderTop: `2px solid ${BORDER}`, paddingTop: '28px' }}>
-            <span style={{ fontSize: '20px', color: SLATE, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: isSquare ? '10px' : '14px', borderTop: `2px solid ${BORDER}`, paddingTop: isSquare ? '18px' : '28px' }}>
+            <span style={{ fontSize: isSquare ? '17px' : '20px', color: SLATE, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
               🛠️ Skills Required
             </span>
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: isSquare ? '8px' : '12px', flexWrap: 'wrap' }}>
               {topSkills.map((skill, i) => (
                 <div
                   key={i}
@@ -271,9 +287,9 @@ function JobSlide({
                     backgroundColor: BLUE + '22',
                     border: `1.5px solid ${BLUE}55`,
                     borderRadius: '50px',
-                    padding: '8px 20px',
+                    padding: isSquare ? '6px 16px' : '8px 20px',
                     color: BLUE_LIGHT,
-                    fontSize: '22px',
+                    fontSize: isSquare ? '18px' : '22px',
                     fontWeight: 700,
                   }}
                 >
@@ -293,36 +309,53 @@ function JobSlide({
           alignItems: 'center',
           backgroundColor: '#1E1B4B',
           border: `2px solid ${BLUE}`,
-          borderRadius: '24px',
-          padding: '28px 40px',
+          borderRadius: isSquare ? '20px' : '24px',
+          padding: isSquare ? '18px 30px' : '28px 40px',
         }}
       >
-        <div style={{ fontSize: '28px', fontWeight: 800, color: WHITE }}>
+        <div style={{ fontSize: isSquare ? '22px' : '28px', fontWeight: 800, color: WHITE }}>
           💬 Comment <span style={{ color: ACCENT }}>"JOBS"</span> for apply link
         </div>
         <div
           style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
             backgroundColor: BLUE,
             color: WHITE,
-            padding: '14px 28px',
+            padding: isSquare ? '10px 22px' : '14px 28px',
             borderRadius: '16px',
-            fontSize: '22px',
+            fontSize: isSquare ? '19px' : '22px',
             fontWeight: 800,
           }}
         >
-          Apply Now →
+          <span>Apply Now</span>
+          <svg
+            width={isSquare ? "18" : "22"}
+            height={isSquare ? "18" : "22"}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#FFFFFF"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ display: 'flex' }}
+          >
+            <line x1="5" y1="12" x2="19" y2="12" />
+            <polyline points="12 5 19 12 12 19" />
+          </svg>
         </div>
       </div>
     </div>
   );
 }
 
-function CtaSlide() {
+function CtaSlide({ isSquare = false }: { isSquare?: boolean }) {
   return (
     <div
       style={{
         width: '1080px',
-        height: '1350px',
+        height: isSquare ? '1080px' : '1350px',
         backgroundColor: BG,
         backgroundImage:
           'radial-gradient(circle at 50% 40%, rgba(59,130,246,0.5) 0%, transparent 60%)',
@@ -330,22 +363,22 @@ function CtaSlide() {
         flexDirection: 'column',
         justifyContent: 'center',
         alignItems: 'center',
-        padding: '80px',
+        padding: isSquare ? '48px 60px' : '80px',
         fontFamily: 'sans-serif',
-        gap: '48px',
+        gap: isSquare ? '28px' : '48px',
       }}
     >
       {/* Logo */}
       <div
         style={{
-          width: '120px',
-          height: '120px',
+          width: isSquare ? '90px' : '120px',
+          height: isSquare ? '90px' : '120px',
           backgroundColor: BLUE,
-          borderRadius: '30px',
+          borderRadius: isSquare ? '24px' : '30px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontSize: '64px',
+          fontSize: isSquare ? '48px' : '64px',
           fontWeight: 900,
           color: WHITE,
           boxShadow: '0 0 60px rgba(59,130,246,0.6)',
@@ -354,11 +387,11 @@ function CtaSlide() {
         D
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-        <div style={{ fontSize: '72px', fontWeight: 900, color: WHITE, letterSpacing: '-1px', textAlign: 'center' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: isSquare ? '10px' : '16px' }}>
+        <div style={{ fontSize: isSquare ? '56px' : '72px', fontWeight: 900, color: WHITE, letterSpacing: '-1px', textAlign: 'center' }}>
           DinoMate Jobs
         </div>
-        <div style={{ fontSize: '32px', color: BLUE_LIGHT, textAlign: 'center', fontWeight: 600 }}>
+        <div style={{ fontSize: isSquare ? '26px' : '32px', color: BLUE_LIGHT, textAlign: 'center', fontWeight: 600 }}>
           Daily verified fresher openings
         </div>
       </div>
@@ -367,25 +400,25 @@ function CtaSlide() {
         style={{
           backgroundColor: CARD_BG,
           border: `2px solid ${BORDER}`,
-          borderRadius: '32px',
-          padding: '48px 64px',
+          borderRadius: isSquare ? '24px' : '32px',
+          padding: isSquare ? '36px 48px' : '48px 64px',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: '28px',
+          gap: isSquare ? '20px' : '28px',
           width: '100%',
         }}
       >
-        <div style={{ fontSize: '32px', fontWeight: 800, color: WHITE, textAlign: 'center' }}>
+        <div style={{ fontSize: isSquare ? '26px' : '32px', fontWeight: 800, color: WHITE, textAlign: 'center' }}>
           🔔 Never Miss a Job Alert
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: isSquare ? '12px' : '16px', width: '100%' }}>
           {[
             '✅ Follow for daily job drops',
             '💬 Comment "JOBS" for instant apply links',
             '📲 Share with a fresher friend',
           ].map((line, i) => (
-            <div key={i} style={{ fontSize: '26px', color: WHITE, fontWeight: 600, opacity: 0.9 }}>
+            <div key={i} style={{ fontSize: isSquare ? '22px' : '26px', color: WHITE, fontWeight: 600, opacity: 0.9 }}>
               {line}
             </div>
           ))}
@@ -396,9 +429,9 @@ function CtaSlide() {
         style={{
           backgroundColor: GREEN + '22',
           border: `2px solid ${GREEN}`,
-          borderRadius: '24px',
-          padding: '20px 48px',
-          fontSize: '28px',
+          borderRadius: isSquare ? '20px' : '24px',
+          padding: isSquare ? '16px 36px' : '20px 48px',
+          fontSize: isSquare ? '24px' : '28px',
           fontWeight: 800,
           color: GREEN,
         }}
@@ -425,12 +458,17 @@ export async function GET(req: NextRequest) {
   const dateStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const count = parseInt(searchParams.get('count') || '5', 10);
 
+  const aspect = searchParams.get('aspect') || searchParams.get('ratio') || '1:1';
+  const isSquare = aspect === '1:1' || aspect === '4:4' || aspect === '4*4' || aspect === 'square';
+  const width = 1080;
+  const height = isSquare ? 1080 : 1350;
+
   let slideEl: JSX.Element;
 
   if (slideType === 'cover') {
-    slideEl = <CoverSlide count={count} date={dateStr} />;
+    slideEl = <CoverSlide count={count} date={dateStr} isSquare={isSquare} />;
   } else if (slideType === 'cta') {
-    slideEl = <CtaSlide />;
+    slideEl = <CtaSlide isSquare={isSquare} />;
   } else {
     slideEl = (
       <JobSlide
@@ -442,13 +480,14 @@ export async function GET(req: NextRequest) {
         batch={batch}
         skills={skills}
         workMode={workMode}
+        isSquare={isSquare}
       />
     );
   }
 
   return new ImageResponse(slideEl, {
-    width: 1080,
-    height: 1350,
+    width,
+    height,
   });
 }
 

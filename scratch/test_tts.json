@@ -1,0 +1,11 @@
+{
+  "scenes": [
+    {
+      "name": "hook",
+      "text": "My friend said engineering done!"
+    }
+  ],
+  "outputDir": "./.temp_test_audio",
+  "offline": true
+}
+
