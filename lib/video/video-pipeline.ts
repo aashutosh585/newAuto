@@ -3,33 +3,29 @@ import Run, { IStage } from '../../models/Run';
 import Post from '../../models/Post';
 import Asset from '../../models/Asset';
 import { publishToZernio, listConnectedAccounts } from '../zernio';
-import { assembleReelVideo } from './video-assembler';
-import { generateReelVoiceover } from './video-tts';
 import { ReelArchetype, VideoReelPlan } from './types';
-import { discoverTrends, TrendEvidence } from '../trend/trend-discovery';
-import { selectVideoFormat, VideoFormatId } from '../variety/format-engine';
+import { discoverTrends } from '../trend/trend-discovery';
+import { forgeFreshIdea, DeliveryMode, VideoIdea } from '../trend/idea-forge';
+import { recordVideoToMemory } from '../variety/content-memory';
+import { buildCast, CastMember } from './cast';
+import { directScript, ReelScript } from './script-director';
 import {
-  evaluateIdeaSimilarity,
-  recordVideoToMemory,
-  getRecentMemories,
-} from '../variety/content-memory';
-import { generateStructuredBrief, StructuredContentBrief } from '../variety/script-brief-engine';
-import { runVideoQualityCheck } from '../variety/quality-checks';
-import { evaluateBriefWithCritic } from '../variety/quality-critic';
-import { generateViralHooks, selectHookForArchetype } from '../trend/viral-hook-generator';
+  synthesizeDialogue,
+  scriptToVoiceLines,
+  renderReel,
+  fetchBroll,
+  pickBackgroundMusic,
+  RenderResult,
+} from './reel-renderer';
 import path from 'path';
 import fs from 'fs';
 
-export type { ReelArchetype, VideoReelPlan };
+export type { ReelArchetype, VideoReelPlan, DeliveryMode };
 
-/**
- * Builds 1080x1920 reel frame URLs with archetype parameters
- */
+/** Legacy static-frame URL builder (still used by the OG preview route / old tests). */
 export function buildReelFrameUrls(baseUrl: string, plan: VideoReelPlan): string[] {
   const base = baseUrl.replace(/\/+$/, '');
-  const scenes = ['hook', 'eligibility', 'skills', 'salary', 'cta'];
-
-  return scenes.map((scene) => {
+  return ['hook', 'eligibility', 'skills', 'salary', 'cta'].map((scene) => {
     const params = new URLSearchParams({
       scene,
       archetype: plan.archetype || 'funny_roast',
@@ -47,380 +43,223 @@ export function buildReelFrameUrls(baseUrl: string, plan: VideoReelPlan): string
   });
 }
 
+/** Accept new modes and legacy archetype names. */
+export function resolveMode(input?: string): DeliveryMode | undefined {
+  if (!input) return undefined;
+  const m = input.toLowerCase();
+  if (m === 'skit' || m === 'funny_roast' || m === 'dino_mascot' || m === 'comedy' || m === 'joke') return 'skit';
+  if (m === 'guide' || m === 'solo_explainer' || m === 'zero_exp_roadmap' || m === 'mentor') return 'guide';
+  if (m === 'voiceover' || m === 'voice' || m === 'breaking_drop' || m === 'salary_reality' || m === 'narration') return 'voiceover';
+  return undefined;
+}
+
+function brollQueries(idea: VideoIdea, script: ReelScript): string[] {
+  const base = [
+    'indian student laptop',
+    'young professional office india',
+    'job interview',
+    'college students campus',
+    'person typing code',
+    'stressed student studying',
+    'team meeting office',
+    'person smartphone scrolling',
+  ];
+  const topical = `${idea.pillar} ${script.title}`.toLowerCase();
+  const picks: string[] = [];
+  if (/interview|hr/.test(topical)) picks.push('job interview');
+  if (/salary|ctc|money|tax|sip/.test(topical)) picks.push('counting money', 'calculator finance');
+  if (/ai|tool|chatgpt/.test(topical)) picks.push('person using laptop ai');
+  if (/code|dsa|developer/.test(topical)) picks.push('programmer coding');
+  if (/resume|linkedin/.test(topical)) picks.push('resume paper desk');
+  return Array.from(new Set([...picks, ...base.sort(() => Math.random() - 0.5)])).slice(0, 4);
+}
+
+interface StageHandle {
+  stage: IStage;
+  done: (itemsOut?: number) => Promise<void>;
+  fail: (msg: string) => Promise<void>;
+}
+
 /**
- * Executes the Multi-Archetype Video Reel Pipeline with Neural Voiceover,
- * Trend Discovery, Video Variety Engine, Content Memory Deduplication, and Quality Checks.
+ * Executes the Animated Reel Pipeline:
+ *   trends -> fresh idea (novelty-scored) -> cast -> script -> human-like multi-voice TTS
+ *   -> animated character render with lip-sync & captions -> publish -> content memory
  */
 export async function runVideoReelPipeline(
   runId: string,
   slot: string,
-  forcedArchetype?: ReelArchetype,
-  forcedFormat?: VideoFormatId
+  forcedModeOrArchetype?: DeliveryMode | ReelArchetype | string,
+  _legacyFormat?: string
 ): Promise<void> {
   await connectToDatabase();
-
   const run = await Run.findById(runId);
   if (!run) {
     console.error(`[VideoPipeline] Run ${runId} not found`);
     return;
   }
-
   run.status = 'running';
   run.startedAt = new Date();
   await run.save();
 
-  const baseUrl =
-    process.env.BASE_PUBLIC_URL ||
-    process.env.NEXTAUTH_URL ||
-    'http://localhost:3000';
+  const baseUrl = process.env.BASE_PUBLIC_URL || process.env.NEXTAUTH_URL || 'http://localhost:3000';
+  const forcedMode = resolveMode(forcedModeOrArchetype) || resolveMode(process.env.VIDEO_MODE);
+  const seed = (Date.now() ^ parseInt(runId.slice(-6), 16)) >>> 0;
+  const workDir = path.join(process.cwd(), '.temp_video', `run_${runId}`);
 
-  console.log(`[VideoPipeline] Starting Autonomous Video Reel Pipeline (runId: ${runId})`);
+  const startStage = async (name: IStage['name'], itemsIn = 1): Promise<StageHandle> => {
+    const stage: IStage = { name, status: 'running', startedAt: new Date(), itemsIn, itemsOut: 0 };
+    return {
+      stage,
+      done: async (itemsOut = 1) => {
+        stage.status = 'completed';
+        stage.itemsOut = itemsOut;
+        stage.completedAt = new Date();
+        run.stages.push(stage);
+        await run.save();
+      },
+      fail: async (msg: string) => {
+        stage.status = 'failed';
+        stage.errorMessage = msg;
+        stage.completedAt = new Date();
+        run.stages.push(stage);
+        await run.save();
+      },
+    };
+  };
+
+  console.log(`[VideoPipeline] Starting animated reel pipeline (run ${runId}, mode=${forcedMode || 'auto'})`);
 
   try {
-    // ========================================================
-    // STAGE 1: TREND DISCOVERY & BREAKOUT SCORING (COLLECT)
-    // ========================================================
-    console.log(`[VideoPipeline] Stage 1: DISCOVERING EVIDENCE-BASED TRENDS`);
-    const stageTrend: IStage = {
-      name: 'collect',
-      status: 'running',
-      startedAt: new Date(),
-      itemsIn: 1,
-      itemsOut: 0,
-    };
+    // 1. COLLECT live signals
+    const collect = await startStage('collect');
+    const trends = await discoverTrends({ niche: 'fresher_careers', preferBreakout: true, limit: 12 });
+    console.log(`[VideoPipeline] ${trends.length} signals: ${trends.map((t) => t.source).join(', ')}`);
+    await collect.done(trends.length);
 
-    const trends = await discoverTrends({
-      niche: 'fresher_careers',
-      preferBreakout: true,
-      limit: 5,
-    });
-
-    const activeTrend: TrendEvidence = trends[0] || {
-      id: `trend_default_${Date.now()}`,
-      topic: 'Engineering Degree vs Chai Tapri: The Unemployed Friend Roast',
-      summary: 'Viral relatable comedy trend on friend teasing degree with zero job offers.',
-      source: 'curated_radar',
-      sourceUrl: 'https://dinomate.app/jobs',
-      publishedAt: new Date(),
-      velocityScore: 25000,
-      isBreakout: true,
-      matchedKeywords: ['engineering roast', 'friend comedy', 'fresher hiring'],
-      niche: 'humor_roasts',
-      evidenceLevel: 'curated_baseline',
-      confidenceScore: 0.95,
-      suggestedAngles: ['Friend roasting you for no job until DinoMate drops 12 LPA verified fresher role'],
-    };
-
+    // 2. IDEATE: fresh, novelty-scored idea
+    const rank = await startStage('rank', trends.length);
+    const { idea, candidates } = await forgeFreshIdea({ trends, forcedMode, runId });
     console.log(
-      `[VideoPipeline] Active Trend Selected: "${activeTrend.topic}" (Source: ${activeTrend.source}, Velocity: ${activeTrend.velocityScore}/hr, Breakout: ${activeTrend.isBreakout})`
+      `[VideoPipeline] Idea picked (${idea.mode}/${idea.setting}, novelty ${idea.novelty}): "${idea.title}" — ${idea.angle}`
     );
+    console.log(`[VideoPipeline] Other candidates: ${candidates.slice(1, 4).map((c) => `"${c.title}" [${c.mode}]`).join(' | ')}`);
+    await rank.done(1);
 
-    stageTrend.status = 'completed';
-    stageTrend.itemsOut = trends.length;
-    stageTrend.completedAt = new Date();
-    run.stages.push(stageTrend);
-    await run.save();
+    // 3. WRITE: cast + script
+    const write = await startStage('write');
+    const cast: CastMember[] = idea.castCount > 0 ? buildCast(idea.castCount, seed, idea.castRoles) : [];
+    const script = await directScript(idea, cast, runId);
+    console.log(`[VideoPipeline] Script "${script.title}" (${script.lines.length} lines):`);
+    for (const l of script.lines) {
+      const who = cast.find((c) => c.id === l.speaker)?.name || 'Narrator';
+      console.log(`   ${who} [${l.emotion}${l.punchline ? ', PUNCHLINE' : ''}]: ${l.text}`);
+    }
+    await write.done(script.lines.length);
 
-    // ========================================================
-    // STAGE 2: FORMAT ENGINE SELECTION & ANTI-FATIGUE CHECK
-    // ========================================================
-    console.log(`[VideoPipeline] Stage 2: FORMAT SELECTION & CONTENT MEMORY CHECK`);
-    const recentMemories = await getRecentMemories(10);
-    const recentFormats = recentMemories.map((m) => m.formatType as VideoFormatId).filter(Boolean);
-
-    const preferHumor = forcedArchetype === 'funny_roast' || !forcedArchetype;
-    const formatSelection = selectVideoFormat({
-      topic: activeTrend.topic,
-      niche: activeTrend.niche,
-      recentFormats,
-      preferHumor,
-    });
-
-    const selectedFormat = forcedFormat ? formatSelection.format : formatSelection.format;
-    console.log(`[VideoPipeline] Format Engine Decision: ${formatSelection.reason}`);
-
-    // Map format to archetype for visual rendering
-    let archetype: ReelArchetype = forcedArchetype || 'funny_roast';
-    if (!forcedArchetype) {
-      if (selectedFormat.id === 'pov' || selectedFormat.id === 'cinematic_narrative') {
-        archetype = 'funny_roast';
-      } else if (selectedFormat.id === 'news_explainer' || selectedFormat.id === 'top_listicle') {
-        archetype = 'breaking_drop';
-      } else if (selectedFormat.id === 'mini_documentary' || selectedFormat.id === 'myth_vs_fact' || selectedFormat.id === 'case_study') {
-        archetype = 'salary_reality';
-      } else {
-        archetype = 'zero_exp_roadmap';
-      }
+    // 4. RENDER: voice -> animation -> mp4
+    const render = await startStage('render', script.lines.length);
+    fs.mkdirSync(workDir, { recursive: true });
+    const audio = await synthesizeDialogue(scriptToVoiceLines(script, cast, seed), path.join(workDir, 'audio'));
+    console.log(`[VideoPipeline] Voice ready: ${audio.totalDurationSec}s via ${audio.providers.join('+')}`);
+    if (audio.providers.includes('silent')) {
+      console.warn('[VideoPipeline] Some lines have NO voice (TTS unavailable). Install edge-tts: pip install -r requirements.txt');
     }
 
-    // Evaluate idea similarity against content memory
-    const similarityCheck = await evaluateIdeaSimilarity({
-      topic: activeTrend.topic,
-      hookText: activeTrend.suggestedAngles[0] || activeTrend.topic,
-      uniqueAngle: activeTrend.suggestedAngles[0],
-      formatType: selectedFormat.id,
-      archetype,
-    });
-
-    if (similarityCheck.isDuplicate) {
-      console.warn(`[VideoPipeline] Duplicate detected: ${similarityCheck.rejectionReason}`);
-      console.warn(`[VideoPipeline] Applying recommended variation angle.`);
+    const broll = script.mode === 'voiceover' ? await fetchBroll(brollQueries(idea, script), path.join(workDir, 'broll')) : [];
+    const videoFileName = `reel_${runId}.mp4`;
+    const videoFilePath = path.join(process.cwd(), 'public', 'videos', videoFileName);
+    let result: RenderResult;
+    try {
+      result = await renderReel({
+        script,
+        cast,
+        audio,
+        setting: idea.setting,
+        outputPath: videoFilePath,
+        workDir,
+        seed,
+        broll,
+        bgmPath: pickBackgroundMusic(),
+      });
+    } catch (err: any) {
+      await render.fail(err.message);
+      throw err;
     }
+    const finalVideoUrl = `${baseUrl.replace(/\/+$/, '')}/videos/${videoFileName}`;
+    await Asset.create({
+      runId,
+      type: 'video',
+      url: finalVideoUrl,
+      slideIndex: 0,
+      width: result.width,
+      height: result.height,
+      label: `reel_${script.mode}_${idea.setting}`,
+      generatedAt: new Date(),
+    }).catch(() => null);
+    console.log(`[VideoPipeline] Rendered ${videoFilePath} (${result.durationSec}s, ${result.frames} frames)`);
+    await render.done(1);
 
-    // ========================================================
-    // STAGE 3: STRUCTURED CONTENT BRIEF & SCRIPT GENERATION
-    // ========================================================
-    console.log(`[VideoPipeline] Stage 3: AI SCRIPT GENERATION (Format: ${selectedFormat.name}, Archetype: ${archetype})`);
-    const stageScript: IStage = {
-      name: 'write',
-      status: 'running',
-      startedAt: new Date(),
-      itemsIn: 1,
-      itemsOut: 1,
-    };
-
-    const brief: StructuredContentBrief = await generateStructuredBrief({
-      trend: activeTrend,
-      format: selectedFormat,
-      preferHumor,
+    await recordVideoToMemory({
+      topic: idea.title,
+      niche: idea.pillar,
+      targetAudience: process.env.CONTENT_AUDIENCE || 'freshers',
+      formatType: script.mode,
+      archetype: script.mode,
+      uniqueAngle: idea.angle,
+      hookText: script.lines[0]?.text || script.title,
+      hookType: script.mode,
+      narrativeStructure: script.lines.map((l) => l.emotion).join('>'),
+      visualStyle: idea.setting,
+      tags: script.hashtags,
+      viralityScore: idea.novelty,
       runId,
     });
 
-    // ========================================================
-    // STAGE 4: QUALITY VALIDATION & AI CRITIC EVALUATION
-    // ========================================================
-    const criticReport = evaluateBriefWithCritic(brief);
-    console.log(
-      `[VideoPipeline] AI Critic Evaluation: ${criticReport.passed ? 'PASSED' : 'REVISION RECOMMENDED'} (Score: ${criticReport.overallScore}/10, Words: ${criticReport.totalWordCount}, Est Speech: ${criticReport.estimatedSpeechDurationSec}s)`
-    );
-    if (!criticReport.passed && criticReport.revisionInstructions) {
-      console.warn(`[VideoPipeline] Critic feedback: ${criticReport.revisionInstructions}`);
-    }
-
-    const qualityReport = runVideoQualityCheck({
-      brief,
-      targetDurationSec: 18,
-      aspectRatio: '9:16',
-    });
-
-    const activeBrief = qualityReport.fixedBrief || brief;
-    console.log(`[VideoPipeline] Quality Check Passed: ${qualityReport.passed} (Score: ${qualityReport.score}/100, Issues: ${qualityReport.issues.length})`);
-
-    const s1 = activeBrief.storyboard[0];
-    const s2 = activeBrief.storyboard[1];
-    const s3 = activeBrief.storyboard[2];
-    const s4 = activeBrief.storyboard[3];
-    const s5 = activeBrief.storyboard[4];
-
-    const plan: VideoReelPlan = {
-      archetype,
-      formatType: selectedFormat.id,
-      role: 'Software Development Engineer Fresher',
-      batch: '2024 / 2025 / 2026 Batches',
-      degrees: 'B.Tech, BE, BCA, MCA, BSc IT',
-      skills: ['Python or JavaScript', 'Basic DSA', 'SQL', 'Git'],
-      salary: 'Rs. 6 LPA - Rs. 14 LPA',
-      companies: 'Top Tech Startups & MNCs',
-      hookHeadline: s1.onScreenHeadline,
-      hookSubtext: s1.onScreenSubtext,
-      roastDialogue: s1.roastDialogue,
-      narrationHook: s1.narrationText,
-      narrationEligibility: s2.narrationText,
-      narrationSkills: s3.narrationText,
-      narrationSalary: s4.narrationText,
-      narrationCta: s5.narrationText,
-      caption: activeBrief.metadata.caption,
-      suggestedVoice: activeBrief.narrationStyle.recommendedVoice as any,
-      trendTopic: activeTrend.topic,
-      qualityScore: qualityReport.score,
-      structuredBrief: activeBrief,
-    };
-
-    stageScript.status = 'completed';
-    stageScript.completedAt = new Date();
-    run.stages.push(stageScript);
-    await run.save();
-
-    // ========================================================
-    // STAGE 5: SYNTHESIZE NEURAL VOICE & RENDER 1080x1920 MP4
-    // ========================================================
-    console.log(`[VideoPipeline] Stage 5: SYNTHESIZE AUDIO & ASSEMBLE MP4 VIDEO`);
-    const stageRender: IStage = {
-      name: 'render',
-      status: 'running',
-      startedAt: new Date(),
-      itemsIn: 5,
-      itemsOut: 0,
-    };
-
-    const tempAudioDir = path.join(process.cwd(), '.temp_audio', `run_${runId}`);
-    let sceneDurations = [3.5, 3.5, 3.5, 3.5, 3.0];
-    let masterAudioPath: string | undefined;
-
-    try {
-      console.log(`[VideoPipeline] Synthesizing Neural Voiceover (${plan.suggestedVoice || 'hi-IN-MadhurNeural'})...`);
-      const ttsResult = await generateReelVoiceover(
-        [
-          { name: 'hook', text: plan.narrationHook },
-          { name: 'eligibility', text: plan.narrationEligibility },
-          { name: 'skills', text: plan.narrationSkills },
-          { name: 'salary', text: plan.narrationSalary },
-          { name: 'cta', text: plan.narrationCta },
-        ],
-        tempAudioDir,
-        plan.suggestedVoice || 'hi-IN-MadhurNeural'
-      );
-
-      masterAudioPath = ttsResult.masterAudioPath;
-      sceneDurations = ttsResult.scenes.map((s) => Math.max(s.durationSec, 2.8));
-      const totalAudio = sceneDurations.reduce((a, b) => a + b, 0);
-      if (totalAudio > 20.0 || totalAudio < 15.0) {
-        const scale = 17.5 / totalAudio;
-        sceneDurations = sceneDurations.map((d) => Number((d * scale).toFixed(2)));
-      }
-      console.log(`[VideoPipeline] Voiceover ready: ${sceneDurations.reduce((a, b) => a + b, 0).toFixed(1)}s total duration (strictly within 15-20s range) across 5 scenes.`);
-    } catch (ttsErr: any) {
-      console.warn('[VideoPipeline] TTS audio generation notice:', ttsErr.message);
-    }
-
-    const reelFrameUrls = buildReelFrameUrls(baseUrl, plan);
-
-    // Save individual scene frame assets to MongoDB
-    for (let i = 0; i < reelFrameUrls.length; i++) {
+    // 5. PUBLISH
+    const caption = `${script.caption}\n\n${script.hashtags.join(' ')}`.trim();
+    if (process.env.VIDEO_PUBLISH === 'false') {
+      console.log('[VideoPipeline] VIDEO_PUBLISH=false — skipping publish.');
+    } else {
+      const publish = await startStage('publish');
       try {
-        await Asset.create({
-          runId,
-          type: 'image',
-          url: reelFrameUrls[i],
-          slideIndex: i,
-          width: 1080,
-          height: 1920,
-          label: `reel_${archetype}_scene_${i + 1}`,
-          generatedAt: new Date(),
+        const publishResult = await publishToZernio({
+          content: caption,
+          mediaUrls: [finalVideoUrl],
+          mediaType: 'video',
+          publishNow: true,
         });
-      } catch {}
-    }
-
-    // Assemble final MP4 video with audio & smooth transitions
-    let finalVideoUrl: string | undefined;
-    const publicVideoDir = path.join(process.cwd(), 'public', 'videos');
-    const videoFileName = `reel_${runId}.mp4`;
-    const videoFilePath = path.join(publicVideoDir, videoFileName);
-
-    try {
-      const videoResult = await assembleReelVideo({
-        sceneImages: reelFrameUrls,
-        outputPath: videoFilePath,
-        durations: sceneDurations,
-        audioPath: masterAudioPath,
-        fps: 24,
-      });
-
-      finalVideoUrl = `${baseUrl.replace(/\/+$/, '')}${videoResult.publicUrl || `/videos/${videoFileName}`}`;
-
-      await Asset.create({
-        runId,
-        type: 'video',
-        url: finalVideoUrl,
-        slideIndex: 0,
-        width: 1080,
-        height: 1920,
-        label: `final_reel_${archetype}_${plan.role.replace(/[^a-zA-Z0-9]/g, '_')}`,
-        generatedAt: new Date(),
-      });
-
-      console.log(
-        `[VideoPipeline] Full MP4 Video created at: ${videoFilePath} (${videoResult.fileSizeMb} MB, ${videoResult.durationSec}s, audio=${videoResult.hasAudio})`
-      );
-
-      // Record to Content Memory to protect against future duplicates
-      await recordVideoToMemory({
-        topic: activeTrend.topic,
-        niche: activeTrend.niche,
-        targetAudience: activeBrief.targetAudience,
-        formatType: selectedFormat.id,
-        archetype,
-        uniqueAngle: activeBrief.uniqueAngle,
-        hookText: plan.narrationHook,
-        hookType: activeBrief.hookBlueprint.hookType,
-        narrativeStructure: activeBrief.narrativeStructure,
-        visualStyle: activeBrief.visualDirection.styleArchetype,
-        tags: activeBrief.metadata.hashtags,
-        viralityScore: 0.88,
-        runId,
-      });
-    } catch (vErr: any) {
-      console.warn('[VideoPipeline] Video assembly notice:', vErr.message);
-    } finally {
-      try {
-        if (fs.existsSync(tempAudioDir)) {
-          fs.rmSync(tempAudioDir, { recursive: true, force: true });
+        const accounts = await listConnectedAccounts();
+        for (const acc of accounts) {
+          await Post.create({
+            runId,
+            platform: acc.platform || acc.type,
+            externalPostId: publishResult?._id || publishResult?.id,
+            postUrl: publishResult?.url,
+            caption,
+            status: 'published',
+          }).catch(() => null);
         }
-      } catch {}
-    }
-
-    stageRender.status = 'completed';
-    stageRender.itemsOut = reelFrameUrls.length + (finalVideoUrl ? 1 : 0);
-    stageRender.completedAt = new Date();
-    run.stages.push(stageRender);
-    await run.save();
-
-    // ========================================================
-    // STAGE 6: PUBLISH VIA ZERNIO (YOUTUBE SHORTS & REELS)
-    // ========================================================
-    console.log(`[VideoPipeline] Stage 6: PUBLISH VIA ZERNIO`);
-    const stagePublish: IStage = {
-      name: 'publish',
-      status: 'running',
-      startedAt: new Date(),
-      itemsIn: 1,
-      itemsOut: 0,
-    };
-
-    try {
-      const publishResult = await publishToZernio({
-        content: plan.caption,
-        mediaUrls: finalVideoUrl ? [finalVideoUrl] : reelFrameUrls,
-        mediaType: finalVideoUrl ? 'video' : 'image',
-        publishNow: true,
-      });
-
-      console.log('[VideoPipeline] Zernio publish result:', publishResult);
-
-      const accounts = await listConnectedAccounts();
-      for (const acc of accounts) {
-        await Post.create({
-          runId,
-          platform: acc.platform || acc.type,
-          externalPostId: publishResult?._id || publishResult?.id,
-          postUrl: publishResult?.url,
-          caption: plan.caption,
-          status: 'published',
-        }).catch(() => null);
+        run.postsPublished = accounts.length || 1;
+        await publish.done(accounts.length || 1);
+      } catch (pubErr: any) {
+        console.error('[VideoPipeline] Publish failed:', pubErr.message);
+        await publish.fail(pubErr.message);
       }
-
-      stagePublish.status = 'completed';
-      stagePublish.itemsOut = accounts.length || 1;
-      stagePublish.completedAt = new Date();
-      run.stages.push(stagePublish);
-      run.postsPublished = accounts.length || 1;
-    } catch (pubErr: any) {
-      console.error('[VideoPipeline] Publish notice:', pubErr.message);
-      stagePublish.status = 'failed';
-      stagePublish.errorMessage = pubErr.message;
-      stagePublish.completedAt = new Date();
-      run.stages.push(stagePublish);
     }
 
     run.status = 'completed';
     run.completedAt = new Date();
     await run.save();
-    console.log(`[VideoPipeline] Run ${runId} COMPLETED ✓`);
+    console.log(`[VideoPipeline] Run ${runId} COMPLETED`);
   } catch (err: any) {
     console.error(`[VideoPipeline] Run ${runId} FAILED:`, err);
     run.status = 'failed';
     run.errorMessage = err.message || 'Video pipeline execution failed';
     run.completedAt = new Date();
     await run.save();
+  } finally {
+    try {
+      if (process.env.KEEP_TEMP !== 'true') fs.rmSync(workDir, { recursive: true, force: true });
+    } catch {}
   }
 }

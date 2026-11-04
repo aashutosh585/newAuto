@@ -11,6 +11,8 @@ export interface CompletionOptions {
   jsonMode?: boolean;
   temperature?: number;
   runId?: string; // pass to log against a run in MongoDB
+  maxTokens?: number; // output budget (long Devanagari scripts need more)
+  timeoutMs?: number; // per-provider request timeout
 }
 
 export interface CompletionResult<T = any> {
@@ -98,8 +100,11 @@ async function saveLlmLog(opts: {
 
 export async function executeLLM<T = any>(options: CompletionOptions): Promise<CompletionResult<T>> {
   const { alias = 'fast', messages, jsonMode = false, temperature = 0.2, runId } = options;
+  const maxTokens = options.maxTokens;
+  const tmo = (d: number) => Math.max(d, options.timeoutMs || 0);
   const promptText = messages.map((m) => `[${m.role}]: ${m.content}`).join('\n\n');
   const t0 = Date.now();
+  const debug = process.env.LLM_DEBUG === 'true';
 
   const errors: string[] = [];
 
@@ -111,15 +116,17 @@ export async function executeLLM<T = any>(options: CompletionOptions): Promise<C
   if (liteLLMBase) {
     try {
       const payload: Record<string, any> = { model: alias, messages, temperature };
+      if (maxTokens) payload.max_tokens = maxTokens;
       if (jsonMode) payload.response_format = { type: 'json_object' };
 
       const res = await axios.post(`${liteLLMBase.replace(/\/+$/, '')}/v1/chat/completions`, payload, {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${liteLLMKey || 'default'}` },
-        timeout: 25000,
+        timeout: tmo(25000),
       });
 
       const rawText = cleanModelOutput(res.data?.choices?.[0]?.message?.content || '');
       const data = jsonMode ? extractJson<T>(rawText) : undefined;
+      if (jsonMode && data === undefined) throw new Error(`non-JSON output (${rawText.length} chars): ${rawText.slice(0, 80)}`);
       const latencyMs = Date.now() - t0;
       const totalTokens = res.data?.usage?.total_tokens || 0;
 
@@ -138,15 +145,17 @@ export async function executeLLM<T = any>(options: CompletionOptions): Promise<C
     try {
       const groqModel = alias === 'writer' ? 'llama-3.3-70b-versatile' : 'llama-3.1-8b-instant';
       const payload: Record<string, any> = { model: groqModel, messages, temperature };
+      if (maxTokens) payload.max_tokens = Math.min(maxTokens, 8000);
       if (jsonMode) payload.response_format = { type: 'json_object' };
 
       const res = await axios.post('https://api.groq.com/openai/v1/chat/completions', payload, {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${groqKey}` },
-        timeout: 20000,
+        timeout: tmo(20000),
       });
 
       const rawText = cleanModelOutput(res.data?.choices?.[0]?.message?.content || '');
       const data = jsonMode ? extractJson<T>(rawText) : undefined;
+      if (jsonMode && data === undefined) throw new Error(`non-JSON output (${rawText.length} chars): ${rawText.slice(0, 80)}`);
       const latencyMs = Date.now() - t0;
       const totalTokens = res.data?.usage?.total_tokens || 0;
 
@@ -169,7 +178,7 @@ export async function executeLLM<T = any>(options: CompletionOptions): Promise<C
       const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`;
       const geminiBody: Record<string, any> = {
         contents: [{ parts: [{ text: userPrompt }] }],
-        generationConfig: { temperature },
+        generationConfig: { temperature, ...(maxTokens ? { maxOutputTokens: maxTokens } : {}) },
       };
       if (systemInstruction) geminiBody.systemInstruction = { parts: [{ text: systemInstruction }] };
       if (jsonMode) geminiBody.generationConfig.responseMimeType = 'application/json';
@@ -177,6 +186,7 @@ export async function executeLLM<T = any>(options: CompletionOptions): Promise<C
       const res = await axios.post(geminiUrl, geminiBody, { timeout: 25000 });
       const rawText = cleanModelOutput(res.data?.candidates?.[0]?.content?.parts?.[0]?.text || '');
       const data = jsonMode ? extractJson<T>(rawText) : undefined;
+      if (jsonMode && data === undefined) throw new Error(`non-JSON output (${rawText.length} chars): ${rawText.slice(0, 80)}`);
       const latencyMs = Date.now() - t0;
       const totalTokens = res.data?.usageMetadata?.totalTokenCount || 0;
 
@@ -204,7 +214,7 @@ export async function executeLLM<T = any>(options: CompletionOptions): Promise<C
           model: modelId,
           messages,
           temperature,
-          max_tokens: 1500,
+          max_tokens: maxTokens || 1500,
         };
         if (jsonMode) {
           payload.response_format = { type: 'json_object' };
@@ -215,12 +225,13 @@ export async function executeLLM<T = any>(options: CompletionOptions): Promise<C
             Authorization: `Bearer ${moonMathKey}`,
             'Content-Type': 'application/json',
           },
-          timeout: 25000,
+          timeout: tmo(25000),
         });
 
         const choice = res.data?.choices?.[0];
         const rawText = cleanModelOutput(choice?.message?.content || choice?.message?.reasoning || '');
         const data = jsonMode ? extractJson<T>(rawText) : undefined;
+      if (jsonMode && data === undefined) throw new Error(`non-JSON output (${rawText.length} chars): ${rawText.slice(0, 80)}`);
         const latencyMs = Date.now() - t0;
         const totalTokens = res.data?.usage?.total_tokens || 0;
 
@@ -262,7 +273,7 @@ export async function executeLLM<T = any>(options: CompletionOptions): Promise<C
           model: modelId,
           messages,
           temperature,
-          max_tokens: 1500,
+          max_tokens: maxTokens || 1500,
         };
         if (jsonMode) {
           payload.response_format = { type: 'json_object' };
@@ -275,12 +286,13 @@ export async function executeLLM<T = any>(options: CompletionOptions): Promise<C
             'HTTP-Referer': process.env.OPENROUTER_SITE_URL || 'https://dinomate.app',
             'X-Title': process.env.OPENROUTER_SITE_NAME || 'DinoMate Social Engine',
           },
-          timeout: 25000,
+          timeout: tmo(25000),
         });
 
         const choice = res.data?.choices?.[0];
         const rawText = cleanModelOutput(choice?.message?.content || choice?.message?.reasoning || '');
         const data = jsonMode ? extractJson<T>(rawText) : undefined;
+      if (jsonMode && data === undefined) throw new Error(`non-JSON output (${rawText.length} chars): ${rawText.slice(0, 80)}`);
         const latencyMs = Date.now() - t0;
         const totalTokens = res.data?.usage?.total_tokens || 0;
 
@@ -306,7 +318,7 @@ export async function executeLLM<T = any>(options: CompletionOptions): Promise<C
         model: iteraModel,
         messages,
         temperature,
-        max_tokens: 1024,
+        max_tokens: maxTokens || 1024,
         chat_template_kwargs: { enable_thinking: false },
       };
       if (jsonMode) {
@@ -318,12 +330,13 @@ export async function executeLLM<T = any>(options: CompletionOptions): Promise<C
           Authorization: `Bearer ${iteraKey}`,
           'Content-Type': 'application/json',
         },
-        timeout: 50000,
+        timeout: tmo(50000),
       });
 
       const choice = res.data?.choices?.[0];
       const rawText = cleanModelOutput(choice?.message?.content || choice?.message?.reasoning || '');
       const data = jsonMode ? extractJson<T>(rawText) : undefined;
+      if (jsonMode && data === undefined) throw new Error(`non-JSON output (${rawText.length} chars): ${rawText.slice(0, 80)}`);
       const latencyMs = Date.now() - t0;
       const totalTokens = res.data?.usage?.total_tokens || 0;
 

@@ -1,256 +1,337 @@
 """
-DinoMate Neural Voiceover (TTS) Engine
-Uses Microsoft Edge TTS (edge-tts) for natural neural speech.
-Features automatic synthetic audio fallback when offline or in test environments.
+DinoMate Dialogue Voice Engine (multi-speaker, human-like TTS)
+
+Synthesises a list of dialogue lines (each with its own speaker voice, rate and
+pitch) into ONE master WAV track plus exact per-line and per-word timings.
+Timings drive lip-sync, speaker switching and karaoke captions in the renderer.
+
+Provider chain (first that works wins, per line):
+  1. ElevenLabs  (if ELEVENLABS_API_KEY set)  - most human, handles Hinglish well
+  2. Microsoft Edge neural TTS (edge-tts, free) - real word-boundary timings
+  3. Windows System.Speech via PowerShell      - offline, robotic but audible
+  4. Silence with estimated timing             - never crashes the pipeline
+
+Usage: python tts_worker.py <spec.json>
+Spec:
+{
+  "lines": [{"id": "l1", "speaker": "aarav", "text": "...", "voice": "en-IN-PrabhatNeural",
+             "rate": "+0%", "pitch": "+0Hz", "pauseAfter": 0.25, "elevenVoiceId": "..."}],
+  "outputDir": "...", "masterOutput": ".../master.wav", "ffmpeg": "path/to/ffmpeg",
+  "offline": false
+}
+Prints a single JSON line with the result on stdout.
 """
 
 import sys
 import os
 import json
-import socket
+import wave
+import struct
 import asyncio
+import subprocess
+import urllib.request
 
-# Ensure clean UTF-8 handling on Windows consoles
-if sys.stdout.encoding != 'utf-8':
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     try:
-        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
         pass
 
-# Import Hinglish-to-Devanagari Normalizer for authentic Indian voiceover
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from hinglish_normalizer import to_indian_devanagari_audio
-except ImportError:
-    try:
-        from lib.video.hinglish_normalizer import to_indian_devanagari_audio
-    except ImportError:
-        def to_indian_devanagari_audio(t: str) -> str:
-            return t
+except Exception:  # pragma: no cover
+    def to_indian_devanagari_audio(t: str) -> str:
+        return t
 
-# Premier authentic Indian Hindi male neural voice
-DEFAULT_VOICE = os.environ.get("TTS_VOICE", "hi-IN-MadhurNeural")
+SAMPLE_RATE = 24000
 
-def is_network_online() -> bool:
-    """
-    Fast, reliable check to test if outbound internet is available.
-    Uses dedicated socket connect to public IP without mutating global socket defaults.
-    """
-    if os.environ.get("OFFLINE") == "true" or os.environ.get("CI") == "true":
-        return False
-    for host, port in [("1.1.1.1", 53), ("8.8.8.8", 53)]:
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(1.5)
-            s.connect((host, port))
-            s.close()
-            return True
-        except Exception:
-            pass
-    return False
 
-def synthesize_windows_sapi_mp3(text: str, mp3_path: str) -> float:
-    """
-    Synthesizes real audible human speech using Windows native SAPI and FFmpeg.
-    Guarantees audible spoken audio even in offline or network-restricted environments.
-    """
-    try:
-        import win32com.client
-        import subprocess
-        from mutagen.mp3 import MP3
+def log(msg: str) -> None:
+    sys.stderr.write(f"[TTSWorker] {msg}\n")
+    sys.stderr.flush()
 
-        wav_path = mp3_path.replace('.mp3', '.wav')
-        os.makedirs(os.path.dirname(os.path.abspath(mp3_path)), exist_ok=True)
 
-        speaker = win32com.client.Dispatch('SAPI.SpVoice')
-        stream = win32com.client.Dispatch('SAPI.SpFileStream')
-        stream.Open(wav_path, 3)  # 3 = SSFMCreateForWrite
-        speaker.AudioOutputStream = stream
-        speaker.Speak(text)
-        stream.Close()
+# --------------------------------------------------------------------------- #
+# Audio helpers (pure stdlib, no mutagen/pydub needed)
+# --------------------------------------------------------------------------- #
 
-        ffmpeg_exe = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-            "node_modules", "@ffmpeg-installer", "win32-x64", "ffmpeg.exe"
-        )
-        if not os.path.exists(ffmpeg_exe):
-            ffmpeg_exe = "ffmpeg"
+def to_wav(ffmpeg: str, src: str, dst: str, tempo: float = 1.0) -> None:
+    """Convert any audio file to 24kHz mono 16-bit WAV, trimming edge silence lightly."""
+    filters = [
+        # trim leading silence so lines butt up naturally
+        "silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.05",
+        # trim trailing silence (reverse trick)
+        "areverse",
+        "silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.08",
+        "areverse",
+    ]
+    if abs(tempo - 1.0) > 0.01:
+        filters.append(f"atempo={tempo:.3f}")
+    subprocess.run(
+        [ffmpeg, "-y", "-loglevel", "error", "-i", src, "-af", ",".join(filters),
+         "-ac", "1", "-ar", str(SAMPLE_RATE), "-sample_fmt", "s16", dst],
+        check=True, capture_output=True,
+    )
 
-        subprocess.run(
-            [ffmpeg_exe, "-y", "-i", wav_path, "-codec:a", "libmp3lame", "-b:a", "128k", mp3_path],
-            capture_output=True,
-            check=True
-        )
 
-        if os.path.exists(wav_path):
-            try:
-                os.remove(wav_path)
-            except Exception:
-                pass
+def read_wav_samples(path: str) -> bytes:
+    with wave.open(path, "rb") as w:
+        if w.getframerate() != SAMPLE_RATE or w.getnchannels() != 1 or w.getsampwidth() != 2:
+            raise ValueError("unexpected wav format")
+        return w.readframes(w.getnframes())
 
-        audio = MP3(mp3_path)
-        return round(audio.info.length, 2)
-    except Exception as e:
-        sys.stderr.write(f"[TTSWorker] SAPI fallback notice: {e}\n")
-        return generate_fallback_mp3(text, mp3_path)
 
-def generate_fallback_mp3(text: str, output_path: str) -> float:
-    """Emergency fallback generating valid calibrated MP3 frames."""
+def silence(seconds: float) -> bytes:
+    return b"\x00\x00" * int(max(0.0, seconds) * SAMPLE_RATE)
+
+
+def estimate_duration(text: str) -> float:
     words = max(1, len(text.split()))
-    duration_sec = max(2.8, min(4.0, round(words / 3.0, 2)))
-    num_frames = int(duration_sec * 38.3)
-    frame = b'\xff\xfb\x90\x00' + b'\x00' * 413
-    
-    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-    with open(output_path, "wb") as f:
-        f.write(frame * num_frames)
-    
-    return duration_sec
+    return round(max(1.2, words / 2.7), 2)  # ~160 wpm conversational
 
-def extract_word_timestamps(text: str, start_time: float, duration: float):
-    """Computes word-level timestamps calibrated for kinetic subtitle animation."""
+
+def distribute_words(text: str, start: float, duration: float):
+    """Fallback word timing weighted by word length (better than uniform)."""
     words = [w for w in text.split() if w]
     if not words:
         return []
-    word_duration = duration / len(words)
-    timestamps = []
+    weights = [max(2, len(w)) + 1 for w in words]
+    total = float(sum(weights))
+    t = start
+    out = []
+    for w, wt in zip(words, weights):
+        d = duration * wt / total
+        out.append({"word": w, "start": round(t, 3), "end": round(t + d, 3)})
+        t += d
+    return out
+
+
+def map_boundaries_to_words(text: str, boundaries, start: float, duration: float):
+    """
+    Map TTS word-boundary timings back onto the ORIGINAL caption words.
+    (Spoken text may differ, e.g. Devanagari transliteration, numbers expanded.)
+    """
+    words = [w for w in text.split() if w]
+    if not words:
+        return []
+    if not boundaries:
+        return distribute_words(text, start, duration)
+    if len(boundaries) == len(words):
+        return [
+            {"word": w, "start": round(start + b[0], 3), "end": round(start + b[0] + b[1], 3)}
+            for w, b in zip(words, boundaries)
+        ]
+    # Different counts: proportional index mapping
+    out = []
+    nb = len(boundaries)
     for i, w in enumerate(words):
-        w_start = round(start_time + (i * word_duration), 2)
-        w_end = round(w_start + word_duration, 2)
-        timestamps.append({"word": w, "start": w_start, "end": w_end})
-    return timestamps
+        j = min(nb - 1, int(i * nb / len(words)))
+        j2 = min(nb - 1, int((i + 1) * nb / len(words)) - 1)
+        j2 = max(j, j2)
+        s = boundaries[j][0]
+        e = boundaries[j2][0] + boundaries[j2][1]
+        out.append({"word": w, "start": round(start + s, 3), "end": round(start + e, 3)})
+    return out
 
-def process_all_scenes_sync(config: dict):
-    scenes_input = config.get("scenes", [])
-    output_dir = config.get("outputDir", "./temp_audio")
-    master_output = config.get("masterOutput", os.path.join(output_dir, "master_narration.mp3"))
 
-    os.makedirs(output_dir, exist_ok=True)
-    results = []
-    audio_files = []
-    all_word_timestamps = []
-    current_time_offset = 0.0
+# --------------------------------------------------------------------------- #
+# Providers
+# --------------------------------------------------------------------------- #
 
-    for idx, sc in enumerate(scenes_input):
-        scene_name = sc.get("name", f"scene_{idx}")
-        text = sc.get("text", "").strip() or "Welcome to DinoMate."
-        scene_file = os.path.join(output_dir, f"{idx}_{scene_name}.mp3")
-        duration = synthesize_windows_sapi_mp3(text, scene_file)
-        
-        words = extract_word_timestamps(text, current_time_offset, duration)
-        all_word_timestamps.extend(words)
-
-        results.append({
-            "name": scene_name,
-            "audioPath": scene_file,
-            "durationSec": duration,
-            "text": text,
-            "words": words
-        })
-        audio_files.append(scene_file)
-        current_time_offset += duration
-
-    with open(master_output, "wb") as outfile:
-        for f in audio_files:
-            with open(f, "rb") as infile:
-                outfile.write(infile.read())
-
-    # Write timestamps.json
-    timestamps_path = os.path.join(output_dir, "timestamps.json")
-    with open(timestamps_path, "w", encoding="utf-8") as tf:
-        json.dump(all_word_timestamps, tf, indent=2)
-
-    total_duration = round(sum(s["durationSec"] for s in results), 2)
-    return {
-        "masterAudioPath": master_output,
-        "timestampsPath": timestamps_path,
-        "totalDurationSec": total_duration,
-        "scenes": results,
-        "wordTimestamps": all_word_timestamps
-    }
-
-async def process_all_scenes_online(config: dict):
+async def synth_edge(text: str, voice: str, rate: str, pitch: str, mp3_path: str):
     import edge_tts
-    from mutagen.mp3 import MP3
 
-    scenes_input = config.get("scenes", [])
-    output_dir = config.get("outputDir", "./temp_audio")
-    master_output = config.get("masterOutput", os.path.join(output_dir, "master_narration.mp3"))
-    default_voice = config.get("voice", DEFAULT_VOICE)
+    spoken = text
+    # hi-IN voices: if the script didn't already supply Devanagari-Hinglish, transliterate what we can
+    if voice.startswith("hi-IN") and not any("\u0900" <= ch <= "\u097F" for ch in text):
+        spoken = to_indian_devanagari_audio(text)
 
-    os.makedirs(output_dir, exist_ok=True)
+    kwargs = dict(rate=rate or "+0%", pitch=pitch or "+0Hz")
+    try:
+        comm = edge_tts.Communicate(spoken, voice, boundary="WordBoundary", **kwargs)
+    except TypeError:  # older edge-tts without boundary kwarg
+        comm = edge_tts.Communicate(spoken, voice, **kwargs)
+
+    audio = bytearray()
+    boundaries = []
+    async for chunk in comm.stream():
+        if chunk["type"] == "audio":
+            audio.extend(chunk["data"])
+        elif chunk["type"] == "WordBoundary":
+            boundaries.append((chunk["offset"] / 1e7, chunk["duration"] / 1e7))
+    if not audio:
+        raise RuntimeError("edge-tts returned no audio")
+    with open(mp3_path, "wb") as f:
+        f.write(audio)
+    return boundaries
+
+
+def synth_elevenlabs(text: str, voice_id: str, mp3_path: str) -> None:
+    key = os.environ.get("ELEVENLABS_API_KEY")
+    if not key or not voice_id:
+        raise RuntimeError("ElevenLabs not configured")
+    model = os.environ.get("ELEVENLABS_MODEL", "eleven_multilingual_v2")
+    body = json.dumps({
+        "text": text,
+        "model_id": model,
+        "voice_settings": {"stability": 0.38, "similarity_boost": 0.8, "style": 0.45, "use_speaker_boost": True},
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128",
+        data=body,
+        headers={"xi-api-key": key, "Content-Type": "application/json", "Accept": "audio/mpeg"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=45) as resp:
+        data = resp.read()
+    if len(data) < 1000:
+        raise RuntimeError("ElevenLabs returned empty audio")
+    with open(mp3_path, "wb") as f:
+        f.write(data)
+
+
+def synth_sapi(text: str, wav_path: str, female: bool) -> None:
+    """Offline Windows speech via PowerShell System.Speech (no pywin32 needed)."""
+    if os.name != "nt":
+        raise RuntimeError("SAPI only on Windows")
+    safe_text = text.replace("'", "''")
+    safe_path = wav_path.replace("'", "''")
+    gender = "Female" if female else "Male"
+    ps = (
+        "Add-Type -AssemblyName System.Speech;"
+        "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer;"
+        f"try {{ $s.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::{gender}) }} catch {{}};"
+        "$s.Rate = 1;"
+        f"$s.SetOutputToWaveFile('{safe_path}');"
+        f"$s.Speak('{safe_text}');"
+        "$s.Dispose();"
+    )
+    subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                   check=True, capture_output=True, timeout=60)
+    if not os.path.exists(wav_path) or os.path.getsize(wav_path) < 1000:
+        raise RuntimeError("SAPI produced no audio")
+
+
+# --------------------------------------------------------------------------- #
+# Main synthesis loop
+# --------------------------------------------------------------------------- #
+
+async def synthesize(spec: dict) -> dict:
+    lines = spec.get("lines", [])
+    out_dir = spec.get("outputDir", "./.temp_audio")
+    master = spec.get("masterOutput", os.path.join(out_dir, "master.wav"))
+    ffmpeg = spec.get("ffmpeg") or "ffmpeg"
+    offline = bool(spec.get("offline")) or os.environ.get("OFFLINE") == "true"
+    lead_in = float(spec.get("leadIn", 0.15))
+    os.makedirs(out_dir, exist_ok=True)
+
+    pcm = bytearray(silence(lead_in))
+    cursor = lead_in
     results = []
-    audio_files = []
-    all_word_timestamps = []
-    current_time_offset = 0.0
+    providers_used = set()
 
-    for idx, sc in enumerate(scenes_input):
-        scene_name = sc.get("name", f"scene_{idx}")
-        text = sc.get("text", "").strip() or "Welcome to DinoMate."
-        voice = sc.get("voice", default_voice)
-        scene_file = os.path.join(output_dir, f"{idx}_{scene_name}.mp3")
+    for idx, ln in enumerate(lines):
+        text = (ln.get("text") or "").strip()
+        if not text:
+            continue
+        spoken = (ln.get("spokenText") or text).strip()
+        voice = ln.get("voice") or "en-IN-PrabhatNeural"
+        tempo = float(ln.get("tempo", 1.0))
+        mp3 = os.path.join(out_dir, f"line_{idx}.mp3")
+        raw_wav = os.path.join(out_dir, f"line_{idx}_raw.wav")
+        wav = os.path.join(out_dir, f"line_{idx}.wav")
+        boundaries = []
+        provider = None
 
-        try:
-            spoken_text = to_indian_devanagari_audio(text) if ("hi-IN" in voice or "en-IN" in voice) else text
-            communicate = edge_tts.Communicate(spoken_text, voice)
-            await asyncio.wait_for(communicate.save(scene_file), timeout=18.0)
-            audio = MP3(scene_file)
-            duration = round(audio.info.length, 2)
-            duration = max(2.8, min(4.2, duration))
-        except Exception as scene_err:
-            sys.stderr.write(f"[TTSWorker] EdgeTTS scene {idx} notice: {scene_err} -> fallback to SAPI voice\n")
-            duration = synthesize_windows_sapi_mp3(text, scene_file)
+        # 1. ElevenLabs
+        if not offline and os.environ.get("ELEVENLABS_API_KEY") and ln.get("elevenVoiceId"):
+            try:
+                synth_elevenlabs(spoken, ln["elevenVoiceId"], mp3)
+                to_wav(ffmpeg, mp3, wav, tempo)
+                provider = "elevenlabs"
+            except Exception as e:
+                log(f"ElevenLabs line {idx} failed: {e}")
 
-        words = extract_word_timestamps(text, current_time_offset, duration)
-        all_word_timestamps.extend(words)
+        # 2. Edge neural TTS (retry once)
+        if provider is None and not offline:
+            for attempt in range(2):
+                try:
+                    boundaries = await asyncio.wait_for(
+                        synth_edge(spoken, voice, ln.get("rate"), ln.get("pitch"), mp3), timeout=30
+                    )
+                    to_wav(ffmpeg, mp3, wav, tempo)
+                    provider = "edge"
+                    break
+                except Exception as e:
+                    log(f"edge-tts line {idx} attempt {attempt + 1} failed: {e}")
+
+        # 3. Windows SAPI
+        if provider is None:
+            try:
+                synth_sapi(spoken, raw_wav, female=bool(ln.get("female")))
+                to_wav(ffmpeg, raw_wav, wav, tempo)
+                provider = "sapi"
+            except Exception as e:
+                log(f"SAPI line {idx} failed: {e}")
+
+        if provider is not None:
+            samples = read_wav_samples(wav)
+            duration = len(samples) / 2 / SAMPLE_RATE
+            # edge boundaries are relative to untrimmed audio; trimming removes ~lead silence
+            if boundaries:
+                shift = boundaries[0][0]
+                boundaries = [((b[0] - shift) / tempo, b[1] / tempo) for b in boundaries]
+        else:
+            duration = estimate_duration(text)
+            samples = silence(duration)
+            provider = "silent"
+
+        providers_used.add(provider)
+        start = cursor
+        pcm.extend(samples)
+        cursor += duration
+        words = map_boundaries_to_words(text, boundaries, start, duration)
+
+        pause = float(ln.get("pauseAfter", 0.22))
+        pcm.extend(silence(pause))
 
         results.append({
-            "name": scene_name,
-            "audioPath": scene_file,
-            "durationSec": duration,
+            "id": ln.get("id", f"l{idx}"),
+            "speaker": ln.get("speaker", "narrator"),
             "text": text,
-            "words": words
+            "start": round(start, 3),
+            "end": round(start + duration, 3),
+            "words": words,
+            "provider": provider,
         })
-        audio_files.append(scene_file)
-        current_time_offset += duration
+        cursor += pause
 
-    with open(master_output, "wb") as outfile:
-        for f in audio_files:
-            with open(f, "rb") as infile:
-                outfile.write(infile.read())
+    pcm.extend(silence(float(spec.get("tail", 0.6))))
+    with wave.open(master, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(SAMPLE_RATE)
+        w.writeframes(bytes(pcm))
 
-    timestamps_path = os.path.join(output_dir, "timestamps.json")
-    with open(timestamps_path, "w", encoding="utf-8") as tf:
-        json.dump(all_word_timestamps, tf, indent=2)
-
-    total_duration = round(sum(s["durationSec"] for s in results), 2)
+    total = len(pcm) / 2 / SAMPLE_RATE
     return {
-        "masterAudioPath": master_output,
-        "timestampsPath": timestamps_path,
-        "totalDurationSec": total_duration,
-        "scenes": results,
-        "wordTimestamps": all_word_timestamps
+        "masterAudioPath": master,
+        "totalDurationSec": round(total, 3),
+        "providers": sorted(providers_used),
+        "lines": results,
     }
 
-def main():
+
+def main() -> None:
     if len(sys.argv) < 2:
-        print("Usage: python tts_worker.py <config.json>")
+        print("Usage: python tts_worker.py <spec.json>")
         sys.exit(1)
-
     with open(sys.argv[1], "r", encoding="utf-8") as f:
-        config = json.load(f)
+        spec = json.load(f)
+    result = asyncio.run(synthesize(spec))
+    print(json.dumps(result, ensure_ascii=False), flush=True)
 
-    try_online = not config.get("offline", False) and os.environ.get("OFFLINE") != "true" and is_network_online()
-    if try_online:
-        try:
-            import asyncio
-            result = asyncio.run(process_all_scenes_online(config))
-        except Exception as e:
-            sys.stderr.write(f"[TTSWorker] Online synthesis exception: {e} -> using SAPI fallback\n")
-            result = process_all_scenes_sync(config)
-    else:
-        result = process_all_scenes_sync(config)
-
-    print(json.dumps(result), flush=True)
 
 if __name__ == "__main__":
     main()

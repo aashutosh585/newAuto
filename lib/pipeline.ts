@@ -98,11 +98,12 @@ function buildCarouselUrls(
 export async function runSocialPipeline(
   runId: string,
   slot: string,
-  pipelineType: 'image' | 'video' | 'all' | string = 'image'
+  pipelineType: 'image' | 'video' | 'all' | string = 'image',
+  videoMode?: string
 ): Promise<void> {
   // If video reel requested, delegate directly to video reel pipeline
   if (pipelineType === 'video') {
-    return await runVideoReelPipeline(runId, slot);
+    return await runVideoReelPipeline(runId, slot, videoMode);
   }
 
   await connectToDatabase();

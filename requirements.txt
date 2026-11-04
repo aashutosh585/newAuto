@@ -1,0 +1,5 @@
+# Python workers for the animated reel engine (lib/video/*.py, lib/video/render/*.py)
+edge-tts>=7.0.0      # free human-like neural voices with word timings
+pillow>=10.0.0       # character + frame drawing
+numpy>=1.26          # audio envelope for lip-sync
+opencv-python>=4.8   # b-roll decoding (voiceover mode) + legacy stitcher

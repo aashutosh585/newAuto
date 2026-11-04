@@ -4,7 +4,7 @@ export interface TrendEvidence {
   id: string;
   topic: string;
   summary: string;
-  source: 'dinomate_live' | 'tech_radar' | 'hacker_news' | 'reddit_trends' | 'youtube_trends' | 'curated_radar';
+  source: 'dinomate_live' | 'tech_radar' | 'hacker_news' | 'reddit_trends' | 'youtube_trends' | 'google_trends' | 'curated_radar';
   sourceUrl: string;
   publishedAt: Date;
   viewCount?: number;
@@ -130,7 +130,8 @@ export async function discoverTrends(options: TrendDiscoveryOptions = {}): Promi
   // Source 2: Hacker News Top Developer Signals
   try {
     const hnRes = await axios.get('https://hacker-news.firebaseio.com/v0/topstories.json', { timeout: 3000 });
-    const topIds = (hnRes.data || []).slice(0, 4);
+    const topIds = (hnRes.data || []).slice(0, 15);
+    let hnTaken = 0;
 
     for (const id of topIds) {
       try {
@@ -172,7 +173,7 @@ export async function discoverTrends(options: TrendDiscoveryOptions = {}): Promi
               'The uncomfortable truth every computer science student needs to hear',
             ],
           });
-          break; // Keep 1 strong developer signal
+          if (++hnTaken >= 2) break; // keep up to 2 developer signals
         }
       } catch {
         // Individual item timeout
@@ -184,10 +185,11 @@ export async function discoverTrends(options: TrendDiscoveryOptions = {}): Promi
 
   // Source 3: Reddit Indian Tech & Student Communities (r/developersIndia, r/Btechtards)
   try {
-    const subreddits = ['developersIndia', 'Btechtards'];
+    const allSubs = ['developersIndia', 'Btechtards', 'IndianWorkplace', 'cscareerquestions', 'csMajors', 'recruitinghell', 'india_cs', 'IndiaCareers'];
+    const subreddits = allSubs.sort(() => Math.random() - 0.5).slice(0, 4);
     for (const sub of subreddits) {
-      if (results.length >= limit) break;
-      const redRes = await axios.get(`https://www.reddit.com/r/${sub}/hot.json?limit=6`, {
+      let taken = 0;
+      const redRes = await axios.get(`https://www.reddit.com/r/${sub}/top.json?t=day&limit=12`, {
         headers: { 'User-Agent': 'DinoMateTrendRadar/2.0' },
         timeout: 2500,
       });
@@ -206,7 +208,13 @@ export async function discoverTrends(options: TrendDiscoveryOptions = {}): Promi
           titleLower.includes('unemployed') ||
           titleLower.includes('resume') ||
           titleLower.includes('offer') ||
-          titleLower.includes('btech');
+          titleLower.includes('btech') ||
+          titleLower.includes('layoff') ||
+          titleLower.includes('manager') ||
+          titleLower.includes('hr ') ||
+          titleLower.includes('ai ') ||
+          titleLower.includes('internship') ||
+          titleLower.includes('college');
 
         if (isTargetTopic) {
           const pubDate = new Date(d.created_utc * 1000);
@@ -231,12 +239,42 @@ export async function discoverTrends(options: TrendDiscoveryOptions = {}): Promi
               'Solo creator explains exact strategy to bypass this placement roadblock',
             ],
           });
-          break; // 1 strong post per subreddit
+          if (++taken >= 2) break; // up to 2 posts per subreddit
         }
       }
     }
   } catch {
     // Reddit timeout fallback
+  }
+
+  // Source 3b: Google Trends daily (India) — broad pop-culture hooks for skits
+  try {
+    const gt = await axios.get('https://trends.google.com/trending/rss?geo=IN', { timeout: 4000, responseType: 'text' });
+    const items = String(gt.data).split('<item>').slice(1, 8);
+    for (const it of items) {
+      const title = (it.match(/<title>([\s\S]*?)<\/title>/) || [])[1]?.replace(/<!\[CDATA\[|\]\]>/g, '').trim();
+      const traffic = (it.match(/<ht:approx_traffic>([^<]+)</) || [])[1] || '';
+      if (!title || /share price|stock|sensex|nifty|\bvs\b|live score|weather|lottery|result/i.test(title)) continue;
+      const views = parseInt(traffic.replace(/[^0-9]/g, ''), 10) || 10000;
+      results.push({
+        id: `trend_gt_${title.replace(/\W+/g, '_').slice(0, 40)}`,
+        topic: title,
+        summary: `Trending on Google India today (${traffic || 'high'} searches). Use only if it can be tied to students / work life naturally.`,
+        source: 'google_trends',
+        sourceUrl: `https://trends.google.com/trends/explore?geo=IN&q=${encodeURIComponent(title)}`,
+        publishedAt: new Date(),
+        viewCount: views,
+        velocityScore: Math.round(views / 24),
+        isBreakout: views >= 50000,
+        matchedKeywords: ['google trends', 'india'],
+        niche: 'pop_culture',
+        evidenceLevel: 'active_market_signal',
+        confidenceScore: 0.8,
+        suggestedAngles: [],
+      });
+    }
+  } catch {
+    // Google Trends unavailable
   }
 
   // Source 4: Verified Niche Evidence Baseline (Guaranteed Fallback with Clear Provenance)
@@ -344,18 +382,22 @@ export async function discoverTrends(options: TrendDiscoveryOptions = {}): Promi
     },
   ];
 
-  // Append verified baselines if we need more results to satisfy limit
-  for (const item of verifiedBaselines) {
-    if (results.length >= limit) break;
+  // Curated baselines are a LAST RESORT only (they used to dominate every run).
+  const liveCount = results.length;
+  for (const item of verifiedBaselines.sort(() => Math.random() - 0.5)) {
+    if (liveCount >= 3 || results.length >= Math.max(3, Math.min(limit, 4))) break;
     if (!results.some((r) => r.topic === item.topic)) {
       results.push(item);
     }
   }
 
-  // Prioritize breakout topics if requested
-  if (options.preferBreakout) {
-    results.sort((a, b) => (b.isBreakout ? 1 : 0) - (a.isBreakout ? 1 : 0) || b.velocityScore - a.velocityScore);
-  }
+  // Live signals first (curated last), then by velocity, with light shuffling for variety.
+  results.sort(
+    (a, b) =>
+      (a.source === 'curated_radar' ? 1 : 0) - (b.source === 'curated_radar' ? 1 : 0) ||
+      (options.preferBreakout ? (b.isBreakout ? 1 : 0) - (a.isBreakout ? 1 : 0) : 0) ||
+      b.velocityScore * (0.7 + Math.random() * 0.6) - a.velocityScore * (0.7 + Math.random() * 0.6)
+  );
 
   return results.slice(0, limit);
 }

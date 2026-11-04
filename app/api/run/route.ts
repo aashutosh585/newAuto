@@ -24,7 +24,9 @@ async function handleRunTrigger(req: NextRequest) {
   const slot = searchParams.get('slot') || 'daily_slot';
   // type: 'image' (carousel only) | 'video' (video + carousel) | 'all' (default = image)
   const pipelineType = (searchParams.get('type') || 'image') as 'image' | 'video' | 'all';
-  const idempotencyKey = generateIdempotencyKey(`${slot}_${pipelineType}`);
+  // mode (video only): skit | guide | voiceover — omit to let the engine rotate automatically
+  const videoMode = searchParams.get('mode') || '';
+  const idempotencyKey = generateIdempotencyKey(`${slot}_${pipelineType}${videoMode ? `_${videoMode}` : ''}`);
 
   await connectToDatabase();
 
@@ -56,7 +58,7 @@ async function handleRunTrigger(req: NextRequest) {
   // 5. Fire pipeline async — instant 200 response to cron caller
   (async () => {
     try {
-      await runSocialPipeline(runIdStr, slot, pipelineType);
+      await runSocialPipeline(runIdStr, slot, pipelineType, searchParams.get('mode') || undefined);
     } catch (err: any) {
       console.error(`[Background Run Error] Run ${runIdStr}:`, err);
     }

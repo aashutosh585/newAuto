@@ -1,9 +1,4 @@
 import path from 'path';
-import fs from 'fs';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
-
-const execFileAsync = promisify(execFile);
 
 export interface SceneTtsInput {
   name: string;
@@ -39,58 +34,39 @@ export interface VoiceoverOptions {
 }
 
 /**
- * Generates natural neural voice narration for video scenes using Microsoft Edge TTS,
- * with automatic synthetic audio timing fallback when offline or in test environments.
+ * Legacy single-voice scene narration (kept for older callers/tests).
+ * Now backed by the multi-speaker dialogue worker, so it gets real neural audio
+ * and real word timings instead of silent placeholder frames.
  */
 export async function generateReelVoiceover(
   scenes: SceneTtsInput[],
   outputDir: string,
   voiceOrOptions?: string | VoiceoverOptions
 ): Promise<FullTtsResult> {
-  const resolvedDir = path.resolve(outputDir);
-  fs.mkdirSync(resolvedDir, { recursive: true });
-
+  const { synthesizeDialogue } = await import('./reel-renderer');
   const voice =
-    typeof voiceOrOptions === 'string'
-      ? voiceOrOptions
-      : voiceOrOptions?.voice || 'hi-IN-MadhurNeural';
+    typeof voiceOrOptions === 'string' ? voiceOrOptions : voiceOrOptions?.voice || 'en-IN-PrabhatNeural';
+  const offline = typeof voiceOrOptions === 'object' ? voiceOrOptions?.offline : undefined;
 
-  const offline =
-    typeof voiceOrOptions === 'object' && voiceOrOptions?.offline !== undefined
-      ? voiceOrOptions.offline
-      : process.env.OFFLINE === 'true' || process.env.CI === 'true';
-
-  const specPath = path.join(resolvedDir, `tts_spec_${Date.now()}.json`);
-  const masterAudioPath = path.join(resolvedDir, 'master_narration.mp3');
-
-  const config = {
-    scenes,
-    outputDir: resolvedDir,
-    masterOutput: masterAudioPath,
-    voice,
-    offline,
+  const res = await synthesizeDialogue(
+    scenes.map((s, i) => ({ id: `s${i}`, speaker: s.name, text: s.text, voice: s.voice || voice, pauseAfter: 0.2 })),
+    path.resolve(outputDir),
+    { offline }
+  );
+  const sceneOut: SceneTtsOutput[] = res.lines.map((l, i) => {
+    const next = res.lines[i + 1];
+    return {
+      name: l.speaker,
+      audioPath: res.masterAudioPath,
+      durationSec: Number(((next ? next.start : res.totalDurationSec) - l.start).toFixed(2)),
+      text: l.text,
+      words: l.words,
+    };
+  });
+  return {
+    masterAudioPath: res.masterAudioPath,
+    totalDurationSec: res.totalDurationSec,
+    scenes: sceneOut,
+    wordTimestamps: res.lines.flatMap((l) => l.words),
   };
-
-  await fs.promises.writeFile(specPath, JSON.stringify(config, null, 2), 'utf-8');
-
-  try {
-    const pythonScript = path.join(process.cwd(), 'lib', 'video', 'tts_worker.py');
-    const { stdout, stderr } = await execFileAsync('python', [pythonScript, specPath]);
-
-    if (stderr && stderr.trim().length > 0) {
-      console.warn('[VideoTTS] Worker notice:', stderr);
-    }
-
-    const lines = stdout.trim().split('\n');
-    const lastLine = lines[lines.length - 1];
-    const result: FullTtsResult = JSON.parse(lastLine);
-
-    return result;
-  } finally {
-    try {
-      if (fs.existsSync(specPath)) {
-        fs.unlinkSync(specPath);
-      }
-    } catch {}
-  }
 }
